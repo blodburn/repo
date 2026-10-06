@@ -43,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/repo-Swift.app/Contents/MacOS
-          lipo -create             "swift/$ARM_DIR/repo-swift"             "swift/$X86_DIR/repo-swift"             -output "dist/repo-Swift.app/Contents/MacOS/repo-swift"
+          lipo -create             "$ARM_DIR/repo-swift"             "$X86_DIR/repo-swift"             -output "dist/repo-Swift.app/Contents/MacOS/repo-swift"
 
           chmod +x "dist/repo-Swift.app/Contents/MacOS/repo-swift"
 
