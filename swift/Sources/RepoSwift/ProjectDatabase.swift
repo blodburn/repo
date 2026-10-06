@@ -71,8 +71,8 @@ final class ProjectDatabase {
         }
         defer { sqlite3_finalize(stmt) }
 
-        sqlite3_bind_text(stmt, 1, type, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(stmt, 2, clean, -1, SQLITE_TRANSIENT)
+        bindText(type.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "character" : type, to: 1, in: stmt)
+        bindText(clean, to: 2, in: stmt)
 
         guard sqlite3_step(stmt) == SQLITE_DONE else {
             if let existing = try objectID(named: clean) { return existing }
@@ -118,7 +118,7 @@ final class ProjectDatabase {
         try execute("BEGIN IMMEDIATE")
         do {
             try withStatement("DELETE FROM mentions WHERE document_id=?") { stmt in
-                sqlite3_bind_text(stmt, 1, documentID, -1, SQLITE_TRANSIENT)
+                bindText(documentID, to: 1, in: stmt)
                 guard sqlite3_step(stmt) == SQLITE_DONE else {
                     throw DatabaseError.message(lastError)
                 }
@@ -128,7 +128,7 @@ final class ProjectDatabase {
                 for (objectID, offset) in values {
                     sqlite3_reset(stmt)
                     sqlite3_clear_bindings(stmt)
-                    sqlite3_bind_text(stmt, 1, documentID, -1, SQLITE_TRANSIENT)
+                    bindText(documentID, to: 1, in: stmt)
                     sqlite3_bind_int64(stmt, 2, objectID)
                     sqlite3_bind_int64(stmt, 3, sqlite3_int64(offset))
                     guard sqlite3_step(stmt) == SQLITE_DONE else {
@@ -145,9 +145,9 @@ final class ProjectDatabase {
 
     func addRevision(documentID: String, text: String, reason: String) throws {
         try withStatement("INSERT INTO revisions(document_id,reason,content) VALUES(?,?,?)") { stmt in
-            sqlite3_bind_text(stmt, 1, documentID, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text(stmt, 2, reason, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text(stmt, 3, text, -1, SQLITE_TRANSIENT)
+            bindText(documentID, to: 1, in: stmt)
+            bindText(reason, to: 2, in: stmt)
+            bindText(text, to: 3, in: stmt)
             guard sqlite3_step(stmt) == SQLITE_DONE else {
                 throw DatabaseError.message(lastError)
             }
@@ -166,7 +166,7 @@ final class ProjectDatabase {
     private func objectID(named name: String) throws -> Int64? {
         var found: Int64?
         try withStatement("SELECT id FROM objects WHERE name=? COLLATE NOCASE AND deleted=0 LIMIT 1") { stmt in
-            sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+            bindText(name, to: 1, in: stmt)
             if sqlite3_step(stmt) == SQLITE_ROW {
                 found = sqlite3_column_int64(stmt, 0)
             }
@@ -190,6 +190,12 @@ final class ProjectDatabase {
         }
         defer { sqlite3_finalize(stmt) }
         try body(stmt)
+    }
+
+    private func bindText(_ value: String, to index: Int32, in stmt: OpaquePointer?) {
+        value.withCString { ptr in
+            sqlite3_bind_text(stmt, index, ptr, -1, SQLITE_TRANSIENT)
+        }
     }
 
     private func string(_ stmt: OpaquePointer?, _ column: Int32) -> String {
