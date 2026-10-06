@@ -1,0 +1,118 @@
+name: Swift macOS Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "swift/**"
+      - ".github/workflows/swift-macos-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-swift-macos:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+          uname -a
+
+      - name: Build arm64
+        working-directory: swift
+        run: |
+          ARM_DIR="$(swift build -c release --arch arm64 --scratch-path .build-arm64 --show-bin-path)"
+          swift build -c release --arch arm64 --scratch-path .build-arm64
+          echo "ARM_DIR=$ARM_DIR" >> "$GITHUB_ENV"
+
+      - name: Build x86_64
+        working-directory: swift
+        run: |
+          X86_DIR="$(swift build -c release --arch x86_64 --scratch-path .build-x86_64 --show-bin-path)"
+          swift build -c release --arch x86_64 --scratch-path .build-x86_64
+          echo "X86_DIR=$X86_DIR" >> "$GITHUB_ENV"
+
+      - name: Package universal app
+        run: |
+          set -euo pipefail
+          mkdir -p dist/repo-Swift.app/Contents/MacOS
+          lipo -create             "swift/$ARM_DIR/repo-swift"             "swift/$X86_DIR/repo-swift"             -output "dist/repo-Swift.app/Contents/MacOS/repo-swift"
+
+          chmod +x "dist/repo-Swift.app/Contents/MacOS/repo-swift"
+
+          cat > "dist/repo-Swift.app/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key>
+            <string>en</string>
+            <key>CFBundleExecutable</key>
+            <string>repo-swift</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.blodburn.repo.swift</string>
+            <key>CFBundleInfoDictionaryVersion</key>
+            <string>6.0</string>
+            <key>CFBundleName</key>
+            <string>repo Swift</string>
+            <key>CFBundleDisplayName</key>
+            <string>repo Swift</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>0.1.0</string>
+            <key>CFBundleVersion</key>
+            <string>1</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>13.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          codesign --force --deep --sign - "dist/repo-Swift.app"
+          ditto -c -k --sequesterRsrc --keepParent             "dist/repo-Swift.app"             "dist/repo-Swift-macOS-universal.zip"
+          shasum -a 256 "dist/repo-Swift-macOS-universal.zip"             > "dist/repo-Swift-macOS-universal.zip.sha256"
+          file "dist/repo-Swift.app/Contents/MacOS/repo-swift"
+          codesign -dv --verbose=2 "dist/repo-Swift.app" 2>&1 || true
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-Swift-macOS-universal
+          path: |
+            dist/repo-Swift-macOS-universal.zip
+            dist/repo-Swift-macOS-universal.zip.sha256
+
+      - name: Publish prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0-swift
+          name: repo Swift v0.1.0
+          target_commitish: main
+          prerelease: true
+          body: |
+            Native macOS Swift/AppKit MVP.
+
+            - macOS 13+
+            - Universal arm64 + x86_64 binary
+            - UTF-8 script/main.txt manuscript
+            - SQLite project metadata/history
+            - @@ dialogue @@ / ## description ## / ₩₩ narration ₩₩
+            - [[object]] registration and automatic later name recognition
+            - Cmd+Z undo / Cmd+U redo
+            - keyboard-first three-pane editor
+
+            This build is ad-hoc signed, not Developer ID notarized. On first launch,
+            macOS may require right-click > Open.
+          files: |
+            dist/repo-Swift-macOS-universal.zip
+            dist/repo-Swift-macOS-universal.zip.sha256
