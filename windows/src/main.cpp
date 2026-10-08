@@ -404,12 +404,22 @@ static fs::path ScriptPath() {
 }
 
 static bool WriteUtf8File(const fs::path& path, const std::wstring& text) {
-    fs::create_directories(path.parent_path());
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    if (!out) return false;
-    std::string u8 = Utf8(text);
-    out.write(u8.data(), (std::streamsize)u8.size());
-    return out.good();
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+    if (ec) return false;
+    const fs::path temporary = path.wstring() + L".writing.tmp";
+    {
+        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+        if (!out) return false;
+        std::string u8 = Utf8(text);
+        out.write(u8.data(), (std::streamsize)u8.size());
+        out.flush();
+        if (!out.good()) return false;
+    }
+    // An interrupted write must not destroy the last complete manuscript.
+    if (!MoveFileExW(temporary.c_str(), path.c_str(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return false;
+    return true;
 }
 
 static std::wstring ReadUtf8File(const fs::path& path) {
@@ -984,6 +994,31 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR commandLine, int nCmdShow) {
+    if (commandLine && wcsstr(commandLine, L"--style-self-test")) {
+        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        LoadLibraryW(L"Msftedit.dll");
+        HWND testEditor = CreateWindowExW(0, MSFTEDIT_CLASS, L"",
+             WS_POPUP | ES_MULTILINE | ES_WANTRETURN, 0,0,450,300,
+             nullptr,nullptr,hInstance,nullptr);
+        if (!testEditor) { CoUninitialize(); return 19; }
+        gEditor = testEditor;
+        gProject = L"style-undo-test";
+        SendMessageW(gEditor, EM_SETUNDOLIMIT, 100, 0);
+        SetWindowTextW(gEditor, L"@@테스트@@");
+        CHARRANGE end{7, 7};
+        SendMessageW(gEditor, EM_EXSETSEL, 0, (LPARAM)&end);
+        SendMessageW(gEditor, EM_REPLACESEL, TRUE, (LPARAM)L"!");
+        const std::wstring changed = WindowText(gEditor);
+        StyleEditorLine(0);
+        SendMessageW(gEditor, EM_UNDO, 0, 0);
+        const bool undoOK = WindowText(gEditor) == L"@@테스트@@";
+        SendMessageW(gEditor, EM_REDO, 0, 0);
+        const bool redoOK = WindowText(gEditor) == changed;
+        DestroyWindow(testEditor);
+        gEditor = nullptr;
+        CoUninitialize();
+        return (undoOK && redoOK) ? 0 : 14;
+    }
     if (commandLine && wcsstr(commandLine, L"--self-test")) {
         fs::path base = fs::temp_directory_path() / L"repo-export-smoke";
         fs::create_directories(base);
