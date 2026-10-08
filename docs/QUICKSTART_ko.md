@@ -1,4 +1,10 @@
-# repo 0.2.0 — 빠른 시작 (Windows Portable)
+# repo v0.3.0 — 빠른 시작 (Windows / macOS)
+
+## 시작하기
+
+Windows는 `repo-Windows-x64.exe` 하나로 실행하며 설치가 필요 없습니다. macOS는 `repo-macOS-universal.zip` 압축 해제 후 `repo.app`을 실행하세요.
+
+Windows는 `Ctrl`, Mac은 `Cmd`를 사용합니다. Undo는 `Ctrl/Cmd+Z`, Redo는 `Ctrl/Cmd+U`입니다.
 
 ## 처음 시작하기
 1. `Ctrl+N`으로 작품 폴더를 선택하거나 생성합니다.
@@ -36,9 +42,15 @@
 | Ctrl+Shift+H | 이전 저장본 복원 |
 | F1 | 인앱 사용법 보기 |
 
+## 자동 서식과 내보내기
+
+Windows판에서는 문단 맨 앞 `@@`, `##`, `₩₩`, `#` 및 등록된 인물 단독 행에 즉시 들여쓰기/서식이 반영됩니다. 원본의 문법 기호는 그대로 유지되고, `Ctrl+Shift+P`에서 기호를 제거한 미리보기를 확인할 수 있습니다. **Mac판은 입력창에서는 구문 색상과 객체 표시를 제공하며, 서식 미리보기는 `Cmd+Shift+P` 별도 창으로 제공합니다.**
+
+Mac판도 제목 관리, 도움말, 객체 등장 위치, DOCX/PDF/HWPX 내보내기를 지원합니다. 기능별 표현 방식은 플랫폼에 따라 아직 일부 차이가 있습니다.
+
 ## 데이터와 내보내기
 원고는 `script/main.txt` (UTF-8)이며 메타데이터와 저장 기록은 `project.sqlite`에 있습니다.
 `File > Export`에서 DOCX, PDF, 실험적 HWPX를 생성할 수 있습니다.
-**현재 PDF는 한글 표시를 위해 페이지 래스터 방식입니다. 텍스트 검색/복사 불가.**
+**Windows PDF는 한글 표시를 위해 페이지 래스터 방식이라 텍스트 검색/복사가 불가능합니다. Mac PDF는 CoreText 기반입니다.**
 **HWPX는 구조 검증 단계이며 실제 한컴오피스 호환성은 미확인.**
-macOS Swift 빌드는 Windows v0.2.0 UI 기능과 아직 완전 동등하지 않습니다.
+macOS PDF는 CoreText 기반, Windows PDF는 페이지 이미지 방식입니다. 실제 HWPX 앱 호환성과 전체 GUI 사용성은 아직 확인이 필요합니다.
