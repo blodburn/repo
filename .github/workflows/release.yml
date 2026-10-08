@@ -110,18 +110,18 @@ jobs:
       - name: Configure
         shell: pwsh
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 
       - name: Build
         shell: pwsh
         run: |
-          cmake --build build --config Release
+          cmake --build build --config Release --parallel
 
       - name: Package Windows app
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist/repo-Windows-x64 | Out-Null
-          Copy-Item build/repo.exe dist/repo-Windows-x64/repo.exe
+          Copy-Item build/Release/repo.exe dist/repo-Windows-x64/repo.exe
           windeployqt --release --no-translations --compiler-runtime dist/repo-Windows-x64/repo.exe
           Compress-Archive -Path dist/repo-Windows-x64/* -DestinationPath dist/repo-Windows-x64.zip -Force
           (Get-FileHash dist/repo-Windows-x64.zip -Algorithm SHA256).Hash.ToLower() + "  repo-Windows-x64.zip" |
