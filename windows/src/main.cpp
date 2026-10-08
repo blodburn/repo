@@ -2,6 +2,8 @@
 #define NOMINMAX
 #include <windows.h>
 #include <richedit.h>
+#include <richole.h>
+#include <tom.h>
 #include <commdlg.h>
 #include "Export.h"
 #include <shlobj.h>
@@ -33,6 +35,7 @@ static constexpr UINT IDM_PREVIEW = 1013;
 static constexpr UINT IDM_TITLE = 1014;
 static constexpr UINT TIMER_AUTOSAVE = 1;
 static constexpr UINT TIMER_PARSE = 2;
+static constexpr UINT TIMER_STYLE = 3;
 
 static HWND gMain = nullptr;
 static HWND gObjectList = nullptr;
@@ -50,6 +53,7 @@ static HFONT gFont = nullptr;
 static sqlite3* gDb = nullptr;
 static fs::path gProject;
 static bool gLoading = false;
+static bool gStyling = false;
 static std::wstring gLastRevision;
 static std::wstring gTitle;
 static const wchar_t* HELP_TEXT =
@@ -296,6 +300,94 @@ static void RebuildMentions(const std::wstring& text) {
     LoadObjects();
 }
 
+// Show screenplay indentation while keeping the original @/#/₩ markers in the
+// editable UTF-8 source. TOM's tomSuspend prevents formatting from becoming an
+// extra Undo step; text edits remain Ctrl+Z / Ctrl+U.
+static void StyleEditorLine(int lineIndex) {
+    if (!gEditor || gStyling || gLoading || gProject.empty() || lineIndex < 0) return;
+    const LONG lineStart = LONG(SendMessageW(gEditor, EM_LINEINDEX, lineIndex, 0));
+    if (lineStart < 0) return;
+    const LONG length = LONG(SendMessageW(gEditor, EM_LINELENGTH, lineStart, 0));
+    std::wstring line(size_t(length) + 1, L'\0');
+    TEXTRANGEW textRange{};
+    textRange.chrg.cpMin = lineStart;
+    textRange.chrg.cpMax = lineStart + length;
+    textRange.lpstrText = line.data();
+    LONG copied = LONG(SendMessageW(gEditor, EM_GETTEXTRANGE, 0, (LPARAM)&textRange));
+    line.resize(size_t(std::max<LONG>(0, copied)));
+    auto trim = [](std::wstring value) {
+        while (!value.empty() && iswspace(value.front())) value.erase(value.begin());
+        while (!value.empty() && iswspace(value.back())) value.pop_back();
+        return value;
+    };
+    const std::wstring raw = trim(line);
+    LONG indent = 140, rightIndent = 120;
+    COLORREF color = RGB(40,40,40);
+    bool bold = false;
+    if (raw.rfind(L"@@", 0) == 0) { indent=1600; rightIndent=1200; color=RGB(29,57,105); }
+    else if (raw.rfind(L"##", 0) == 0) { indent=140; rightIndent=120; color=RGB(62,74,68); }
+    else if (raw.rfind(L"₩₩", 0) == 0) { indent=700; rightIndent=650; color=RGB(92,55,113); }
+    else if (raw.rfind(L"#", 0) == 0) { indent=140; rightIndent=120; bold=true; }
+    else if (raw.rfind(L"//", 0) == 0) { color=RGB(130,130,130); }
+    else if (!raw.empty()) {
+        for (const auto& object : gObjects) {
+            if (object.type != L"character") continue;
+            if (raw == object.name || raw == L"[[" + object.name + L"]]") {
+                indent=2600; rightIndent=400; bold=true;
+                break;
+            }
+        }
+    }
+    CHARRANGE prior{};
+    SendMessageW(gEditor, EM_EXGETSEL, 0, (LPARAM)&prior);
+    IUnknown* ole = nullptr;
+    ITextDocument* document = nullptr;
+    SendMessageW(gEditor, EM_GETOLEINTERFACE, 0, (LPARAM)&ole);
+    if (ole) {
+        ole->QueryInterface(__uuidof(ITextDocument), reinterpret_cast<void**>(&document));
+        ole->Release();
+    }
+
+    gStyling = true;
+    if (document) document->Undo(tomSuspend, nullptr);
+    CHARRANGE select{lineStart, lineStart + length};
+    SendMessageW(gEditor, EM_EXSETSEL, 0, (LPARAM)&select);
+    PARAFORMAT2 pf{};
+    pf.cbSize = sizeof(pf);
+    pf.dwMask = PFM_STARTINDENT | PFM_RIGHTINDENT | PFM_ALIGNMENT;
+    pf.wAlignment = PFA_LEFT;
+    pf.dxStartIndent = indent;
+    pf.dxRightIndent = rightIndent;
+    SendMessageW(gEditor, EM_SETPARAFORMAT, 0, (LPARAM)&pf);
+    CHARFORMAT2W cf{};
+    cf.cbSize = sizeof(cf);
+    cf.dwMask = CFM_COLOR | CFM_BOLD;
+    cf.crTextColor = color;
+    cf.dwEffects = bold ? CFE_BOLD : 0;
+    SendMessageW(gEditor, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+    SendMessageW(gEditor, EM_EXSETSEL, 0, (LPARAM)&prior);
+    if (document) {
+        document->Undo(tomResume, nullptr);
+        document->Release();
+    }
+    gStyling = false;
+}
+
+static void StyleEntireDocument() {
+    if (!gEditor || gProject.empty()) return;
+    LONG lines = LONG(SendMessageW(gEditor, EM_GETLINECOUNT, 0, 0));
+    for (LONG index=0; index<lines; ++index) StyleEditorLine(index);
+}
+
+static void StyleCurrentParagraph() {
+    CHARRANGE sel{};
+    SendMessageW(gEditor, EM_EXGETSEL, 0, (LPARAM)&sel);
+    const int line=int(SendMessageW(gEditor, EM_LINEFROMCHAR, sel.cpMin, 0));
+    StyleEditorLine(line);
+    // A newly started line can affect character cue recognition on the previous line.
+    if (line>0) StyleEditorLine(line-1);
+}
+
 static void UpdatePreview();
 
 static void ParseDocument() {
@@ -426,6 +518,7 @@ static void OpenProjectFolder(const std::wstring& folder, bool create) {
     SaveTitle();
 
     ParseDocument();
+    StyleEntireDocument();
     gLastRevision = text;
     SaveProject("open");
     SetFocus(gEditor);
@@ -644,6 +737,7 @@ static void RestoreEarlierRevision() {
     gLoading = false;
     SaveProject("restore");
     ParseDocument();
+    StyleEntireDocument();
     SetFocus(gEditor);
 }
 
@@ -767,6 +861,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         } else if (wParam == TIMER_PARSE) {
             KillTimer(hwnd, TIMER_PARSE);
             ParseDocument();
+        } else if (wParam == TIMER_STYLE) {
+            KillTimer(hwnd, TIMER_STYLE);
+            StyleCurrentParagraph();
         }
         return 0;
 
@@ -777,9 +874,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         if ((HWND)lParam == gTitleEdit && code == EN_CHANGE && !gLoading && !gProject.empty()) {
             SetTimer(hwnd, TIMER_AUTOSAVE, 650, nullptr);
         }
-        if ((HWND)lParam == gEditor && code == EN_CHANGE && !gLoading && !gProject.empty()) {
+        if ((HWND)lParam == gEditor && code == EN_CHANGE && !gLoading && !gStyling && !gProject.empty()) {
             SetTimer(hwnd, TIMER_AUTOSAVE, 800, nullptr);
             SetTimer(hwnd, TIMER_PARSE, 180, nullptr);
+            SetTimer(hwnd, TIMER_STYLE, 120, nullptr);
         }
         if ((HWND)lParam == gObjectList && code == LBN_SELCHANGE) {
             ShowSelectedObject();
