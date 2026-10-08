@@ -50,6 +50,7 @@ static HWND gPreview = nullptr;
 static bool gPreviewVisible = false;
 static HWND gStatus = nullptr;
 static HFONT gFont = nullptr;
+static HFONT gUIFont = nullptr;
 static sqlite3* gDb = nullptr;
 static fs::path gProject;
 static bool gLoading = false;
@@ -453,7 +454,7 @@ static void SaveTitle() {
     sqlite3_bind_text(stmt, 1, value.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    std::wstring caption = (gTitle.empty() ? L"repo" : gTitle) + L" - repo 0.2.0";
+    std::wstring caption = (gTitle.empty() ? L"repo" : gTitle) + L" - repo 0.3.1";
     SetWindowTextW(gMain, caption.c_str());
 }
 static std::wstring LoadTitle() {
@@ -812,6 +813,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         gFont = CreateFontW(-16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                             CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
+        gUIFont = CreateFontW(-17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                             HANGEUL_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Malgun Gothic");
 
         gTitleLabel = CreateWindowExW(0, L"STATIC", L"작품 제목:",
             WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 100, 24, hwnd, nullptr, nullptr, nullptr);
@@ -843,15 +847,15 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         gStatus = CreateWindowExW(0, L"STATIC", L"Ready",
             WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 100, 24, hwnd, nullptr, nullptr, nullptr);
 
-        SendMessageW(gObjectList, WM_SETFONT, (WPARAM)gFont, TRUE);
+        SendMessageW(gObjectList, WM_SETFONT, (WPARAM)(gUIFont ? gUIFont : gFont), TRUE);
         SendMessageW(gEditor, WM_SETFONT, (WPARAM)gFont, TRUE);
-        SendMessageW(gInfo, WM_SETFONT, (WPARAM)gFont, TRUE);
-        SendMessageW(gProjectLabel, WM_SETFONT, (WPARAM)gFont, TRUE);
-        SendMessageW(gStatus, WM_SETFONT, (WPARAM)gFont, TRUE);
-        SendMessageW(gTitleLabel, WM_SETFONT, (WPARAM)gFont, TRUE);
-        SendMessageW(gTitleEdit, WM_SETFONT, (WPARAM)gFont, TRUE);
-        SendMessageW(gObjectHeader, WM_SETFONT, (WPARAM)gFont, TRUE);
-        SendMessageW(gInfoHeader, WM_SETFONT, (WPARAM)gFont, TRUE);
+        SendMessageW(gInfo, WM_SETFONT, (WPARAM)(gUIFont ? gUIFont : gFont), TRUE);
+        SendMessageW(gProjectLabel, WM_SETFONT, (WPARAM)(gUIFont ? gUIFont : gFont), TRUE);
+        SendMessageW(gStatus, WM_SETFONT, (WPARAM)(gUIFont ? gUIFont : gFont), TRUE);
+        SendMessageW(gTitleLabel, WM_SETFONT, (WPARAM)(gUIFont ? gUIFont : gFont), TRUE);
+        SendMessageW(gTitleEdit, WM_SETFONT, (WPARAM)(gUIFont ? gUIFont : gFont), TRUE);
+        SendMessageW(gObjectHeader, WM_SETFONT, (WPARAM)(gUIFont ? gUIFont : gFont), TRUE);
+        SendMessageW(gInfoHeader, WM_SETFONT, (WPARAM)(gUIFont ? gUIFont : gFont), TRUE);
         SendMessageW(gPreview, WM_SETFONT, (WPARAM)gFont, TRUE);
         SetWindowTextW(gInfo, HELP_TEXT);
         SetWindowTextW(gEditor, L"Ctrl+N 새 작품 만들기\r\nCtrl+O 기존 작품 열기\r\nF1 전체 사용법\r\n\r\n[이 화면은 원고로 저장되지 않습니다.]");
@@ -987,6 +991,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     case WM_DESTROY:
         CloseDb();
         if (gFont) DeleteObject(gFont);
+        if (gUIFont) DeleteObject(gUIFont);
         PostQuitMessage(0);
         return 0;
     }
@@ -994,6 +999,17 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR commandLine, int nCmdShow) {
+    if (commandLine && wcsstr(commandLine, L"--encoding-self-test")) {
+        // Escaped Unicode is independent of the compiler's source-code page.
+        // This catches mojibake in built-in Korean UI, object syntax and won sign.
+        const bool help = wcsstr(HELP_TEXT, L"\uBE60\uB978 \uC2DC\uC791") != nullptr;
+        const bool title = wcsstr(HELP_TEXT, L"\uC791\uD488 \uC81C\uBAA9") != nullptr;
+        const bool character = wcsstr(HELP_TEXT, L"[[\uAE40\uCCA0\uC218]]") != nullptr;
+        const bool location = wcsstr(HELP_TEXT, L"[[\uC7A5\uC18C:\uC11C\uC6B8\uC5ED]]") != nullptr;
+        const bool narrative = wcschr(HELP_TEXT, wchar_t(0x20A9)) != nullptr;
+        const bool generated = Utf8(L"\uAE40\uCCA0\uC218") == std::string("\xEA\xB9\x80\xEC\xB2\xA0\xEC\x88\x98");
+        return help && title && character && location && narrative && generated ? 0 : 17;
+    }
     if (commandLine && wcsstr(commandLine, L"--style-self-test")) {
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         LoadLibraryW(L"Msftedit.dll");
@@ -1048,7 +1064,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR commandLine, int nCmdS
     RegisterClassW(&wc);
 
     HWND hwnd = CreateWindowExW(
-        0, CLASS_NAME, L"repo portable 0.2.0",
+        0, CLASS_NAME, L"repo portable 0.3.1",
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT, 1440, 900,
         nullptr, nullptr, hInstance, nullptr);
