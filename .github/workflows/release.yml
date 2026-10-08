@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "src/**"
+      - "windows/**"
       - "CMakeLists.txt"
       - "swift/**"
       - ".github/workflows/release.yml"
@@ -124,8 +125,6 @@ jobs:
           Copy-Item build-win/Release/repo.exe dist/repo-Windows-x64.exe
           (Get-FileHash dist/repo-Windows-x64.exe -Algorithm SHA256).Hash.ToLower() + "  repo-Windows-x64.exe" |
             Set-Content -Encoding ascii dist/repo-Windows-x64.exe.sha256
-          Write-Host "Dependencies:"
-          dumpbin /dependents dist/repo-Windows-x64.exe
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
