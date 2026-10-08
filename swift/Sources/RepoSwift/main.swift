@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindowController: MainWindowController?
@@ -120,6 +121,34 @@ final class MenuActions: NSObject {
     @objc func help(_ sender: Any?) { controller?.showHelp() }
     @objc func export(_ sender: NSMenuItem) {
         if let ext = sender.representedObject as? String { controller?.exportDocument(extension: ext) }
+    }
+}
+
+if CommandLine.arguments.contains("--export-self-test") {
+    do {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("repo-swift-export-smoke", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let source = """
+        # 병원 복도 - 밤
+        [[김철수]]
+        @@ 안녕하세요 @@
+        ## [[김철수]]가 문을 연다 ##
+        ₩₩ 바람이 분다 ₩₩
+        """
+        let paragraphs = ScriptDocument.paragraphs(source, title: "시험 작품", names: ["김철수"])
+        try ScriptDocument.exportPDF(to: folder.appendingPathComponent("sample.pdf"), paragraphs: paragraphs)
+        try ScriptDocument.exportDOCX(to: folder.appendingPathComponent("sample.docx"), paragraphs: paragraphs)
+        try ScriptDocument.exportHWPX(to: folder.appendingPathComponent("sample.hwpx"), paragraphs: paragraphs, title: "시험 작품")
+        for ext in ["pdf", "docx", "hwpx"] {
+            let path = folder.appendingPathComponent("sample.\(ext)")
+            let size = (try FileManager.default.attributesOfItem(atPath: path.path)[.size] as? NSNumber)?.intValue ?? 0
+            guard size > 128 else { throw ScriptExportError.cannotWrite }
+        }
+        print("repo Swift export smoke test passed: \(folder.path)")
+        Darwin.exit(0)
+    } catch {
+        fputs("repo Swift export self test failed: \(error)\n", stderr)
+        Darwin.exit(12)
     }
 }
 
