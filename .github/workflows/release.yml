@@ -121,8 +121,9 @@ jobs:
       - name: Export smoke test
         shell: pwsh
         run: |
-          & build-win/Release/repo.exe --self-test
-          if ($LASTEXITCODE -ne 0) { throw "Export smoke test failed: $LASTEXITCODE" }
+          $exe = (Resolve-Path build-win/Release/repo.exe).Path
+          $proc = Start-Process -FilePath $exe -ArgumentList '--self-test' -PassThru -Wait
+          if ($proc.ExitCode -ne 0) { throw "Export smoke test failed: $($proc.ExitCode)" }
           $root = Join-Path $env:TEMP "repo-export-smoke"
           foreach ($type in @("docx", "hwpx", "pdf")) {
             $file = Join-Path $root "sample.$type"
