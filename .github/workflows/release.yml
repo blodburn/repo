@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 env:
-  RELEASE_TAG: v0.1.2
+  RELEASE_TAG: v0.2.0
 
 jobs:
   build-macos:
@@ -69,7 +69,7 @@ jobs:
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleShortVersionString</key>
-            <string>0.1.2</string>
+            <string>0.2.0</string>
             <key>CFBundleVersion</key>
             <string>3</string>
             <key>LSMinimumSystemVersion</key>
@@ -104,7 +104,7 @@ jobs:
       - name: Install static SQLite
         shell: pwsh
         run: |
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install sqlite3:x64-windows-static
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install sqlite3:x64-windows-static zlib:x64-windows-static
 
       - name: Configure portable Win32 build
         shell: pwsh
@@ -117,6 +117,32 @@ jobs:
         shell: pwsh
         run: |
           cmake --build build-win --config Release --parallel
+
+      - name: Export smoke test
+        shell: pwsh
+        run: |
+          & build-win/Release/repo.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Export smoke test failed: $LASTEXITCODE" }
+          $root = Join-Path $env:TEMP "repo-export-smoke"
+          foreach ($type in @("docx", "hwpx", "pdf")) {
+            $file = Join-Path $root "sample.$type"
+            if (!(Test-Path $file)) { throw "Missing $file" }
+            if ((Get-Item $file).Length -lt 120) { throw "Empty export $file" }
+          }
+          Add-Type -AssemblyName System.IO.Compression
+          foreach ($type in @("docx","hwpx")) {
+            $archive = [IO.Compression.ZipFile]::OpenRead((Join-Path $root "sample.$type"))
+            try {
+              foreach ($entry in $archive.Entries) {
+                if ($entry.FullName -match "\.(xml|rels|hpf)$") {
+                  $reader = New-Object IO.StreamReader($entry.Open())
+                  try { $null = [xml]$reader.ReadToEnd() }
+                  finally { $reader.Dispose() }
+                }
+              }
+            } finally { $archive.Dispose() }
+          }
+          Write-Host "DOCX/HWPX XML and PDF smoke tests passed"
 
       - name: Package single EXE
         shell: pwsh
@@ -152,7 +178,7 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: main
-          name: repo v0.1.2
+          name: repo v0.2.0
           prerelease: true
           body: |
             Cross-platform preview release.
@@ -164,6 +190,8 @@ jobs:
 
             Windows:
             - native C++20 Win32 build
+            - project title, help, object navigation and formatted preview
+            - PDF, DOCX, experimental HWPX export
             - single portable EXE, no Qt DLL folder
             - statically linked SQLite and MSVC runtime
             - Windows x64
