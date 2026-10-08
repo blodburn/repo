@@ -1,11 +1,7 @@
 name: Swift macOS Release
 
+# Legacy manual-only workflow. Use release.yml for normal releases.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "swift/**"
-      - ".github/workflows/swift-macos-release.yml"
   workflow_dispatch:
 
 permissions:
