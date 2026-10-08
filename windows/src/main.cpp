@@ -2,6 +2,8 @@
 #define NOMINMAX
 #include <windows.h>
 #include <richedit.h>
+#include <commdlg.h>
+#include "Export.h"
 #include <shlobj.h>
 #include <sqlite3.h>
 
@@ -11,6 +13,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <cwctype>
 
 namespace fs = std::filesystem;
 
@@ -20,6 +23,14 @@ static constexpr UINT IDM_SAVE = 1003;
 static constexpr UINT IDM_UNDO = 1004;
 static constexpr UINT IDM_REDO = 1005;
 static constexpr UINT IDM_CREATE_OBJECT = 1006;
+static constexpr UINT IDM_HELP = 1007;
+static constexpr UINT IDM_EXPORT_DOCX = 1008;
+static constexpr UINT IDM_EXPORT_HWPX = 1009;
+static constexpr UINT IDM_EXPORT_PDF = 1010;
+static constexpr UINT IDM_NEXT_MENTION = 1011;
+static constexpr UINT IDM_HISTORY_RESTORE = 1012;
+static constexpr UINT IDM_PREVIEW = 1013;
+static constexpr UINT IDM_TITLE = 1014;
 static constexpr UINT TIMER_AUTOSAVE = 1;
 static constexpr UINT TIMER_PARSE = 2;
 
@@ -28,12 +39,41 @@ static HWND gObjectList = nullptr;
 static HWND gEditor = nullptr;
 static HWND gInfo = nullptr;
 static HWND gProjectLabel = nullptr;
+static HWND gTitleLabel = nullptr;
+static HWND gTitleEdit = nullptr;
+static HWND gObjectHeader = nullptr;
+static HWND gInfoHeader = nullptr;
+static HWND gPreview = nullptr;
+static bool gPreviewVisible = false;
 static HWND gStatus = nullptr;
 static HFONT gFont = nullptr;
 static sqlite3* gDb = nullptr;
 static fs::path gProject;
 static bool gLoading = false;
 static std::wstring gLastRevision;
+static std::wstring gTitle;
+static const wchar_t* HELP_TEXT =
+    L"repo  |  빠른 시작\r\n\r\n"
+    L"1. Ctrl+N : 새 작품 프로젝트 생성\r\n"
+    L"2. 상단 작품 제목 입력 후 원고 작성\r\n"
+    L"3. [[김철수]] : 등장인물 등록\r\n"
+    L"   [[장소:서울역]] : 장소 등록\r\n"
+    L"   이후 김철수, 서울역을 일반 문장으로 입력해도 자동 인식\r\n\r\n"
+    L"문법:\r\n"
+    L" # 병원 복도 - 밤  : 장면\r\n"
+    L" @@ 안녕하세요 @@  : 대사\r\n"
+    L" ## 문이 열린다 ##  : 상황/행동\r\n"
+    L" ₩₩ 그날 밤... ₩₩  : 나레이션\r\n"
+    L" // 작성자 메모 : 최종 출력 제외\r\n\r\n"
+    L"Ctrl+S 저장  /  Ctrl+Z 실행 취소  /  Ctrl+U 다시 실행\r\n"
+    L"Ctrl+Shift+O 단어/선택 영역을 오브젝트로 등록\r\n"
+    L"Ctrl+G 선택 오브젝트의 다음 등장 위치\r\n"
+    L"Ctrl+Shift+P 서식 미리보기  /  Esc 본문 복귀\r\n"
+    L"Ctrl+Shift+H 이전 저장본 복원\r\n"
+    L"Ctrl+T 작품 제목 수정  /  F1 사용법\r\n\r\n"
+    L"File > Export : Word(.docx), PDF, HWPX(실험)\r\n"
+    L"원본: script\\main.txt (UTF-8)\r\n"
+    L"오브젝트/자동 저장 이력: project.sqlite\r\n";
 
 struct StoryObject {
     sqlite3_int64 id{};
@@ -62,8 +102,9 @@ static std::wstring Wide(const std::string& s) {
 
 static std::wstring WindowText(HWND hwnd) {
     int len = GetWindowTextLengthW(hwnd);
-    std::wstring text((size_t)len, L'\0');
+    std::wstring text((size_t)len + 1, L'\0');
     if (len) GetWindowTextW(hwnd, text.data(), len + 1);
+    text.resize((size_t)len);
     return text;
 }
 
@@ -99,7 +140,8 @@ static bool OpenDb(const fs::path& path) {
     Exec("PRAGMA synchronous=NORMAL;");
     Exec("PRAGMA foreign_keys=ON;");
     return
-      Exec("CREATE TABLE IF NOT EXISTS objects("
+      Exec("CREATE TABLE IF NOT EXISTS project_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+      && Exec("CREATE TABLE IF NOT EXISTS objects("
            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
            "type TEXT NOT NULL DEFAULT 'character',"
            "name TEXT NOT NULL UNIQUE,"
@@ -244,12 +286,15 @@ static void RebuildMentions(const std::wstring& text) {
     LoadObjects();
 }
 
+static void UpdatePreview();
+
 static void ParseDocument() {
     if (!gDb || gProject.empty()) return;
     std::wstring text = WindowText(gEditor);
     ScanExplicitObjects(text);
     RebuildMentions(text);
     RefreshObjectList();
+    if (gPreviewVisible) UpdatePreview();
 }
 
 static fs::path ScriptPath() {
@@ -286,8 +331,35 @@ static void AddRevision(const std::wstring& text, const char* reason) {
     gLastRevision = text;
 }
 
+static void SaveTitle() {
+    if (!gDb || gProject.empty()) return;
+    gTitle = WindowText(gTitleEdit);
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(gDb, "INSERT INTO project_meta(key,value) VALUES('title',?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value", -1, &stmt, nullptr) != SQLITE_OK) return;
+    std::string value = Utf8(gTitle);
+    sqlite3_bind_text(stmt, 1, value.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    std::wstring caption = (gTitle.empty() ? L"repo" : gTitle) + L" - repo 0.2.0";
+    SetWindowTextW(gMain, caption.c_str());
+}
+static std::wstring LoadTitle() {
+    if (!gDb) return {};
+    sqlite3_stmt* stmt = nullptr;
+    std::wstring result;
+    if (sqlite3_prepare_v2(gDb, "SELECT value FROM project_meta WHERE key='title'", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* value = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            if (value) result = Wide(value);
+        }
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
 static void SaveProject(const char* reason = "manual") {
     if (gProject.empty()) return;
+    SaveTitle();
     std::wstring text = WindowText(gEditor);
     if (!WriteUtf8File(ScriptPath(), text)) {
         SetStatus(L"Save failed");
@@ -319,6 +391,8 @@ static void OpenProjectFolder(const std::wstring& folder, bool create) {
     fs::create_directories(gProject / L"script");
 
     if (!OpenDb(gProject / L"project.sqlite")) return;
+    gTitle = LoadTitle();
+    if (gTitle.empty()) gTitle = gProject.filename().wstring();
 
     std::wstring text;
     if (fs::exists(ScriptPath())) {
@@ -333,9 +407,13 @@ static void OpenProjectFolder(const std::wstring& folder, bool create) {
     }
 
     gLoading = true;
+    SendMessageW(gEditor, EM_SETREADONLY, FALSE, 0);
     SetWindowTextW(gEditor, text.c_str());
+    SendMessageW(gTitleEdit, EM_SETREADONLY, FALSE, 0);
+    SetWindowTextW(gTitleEdit, gTitle.c_str());
     gLoading = false;
     SetWindowTextW(gProjectLabel, gProject.wstring().c_str());
+    SaveTitle();
 
     ParseDocument();
     gLastRevision = text;
@@ -406,36 +484,56 @@ static void Layout(HWND hwnd) {
     GetClientRect(hwnd, &r);
     int w = r.right - r.left;
     int h = r.bottom - r.top;
-    int top = 34;
+    int top = 76;
     int bottom = 24;
-    int left = 230;
-    int right = 290;
+    int left = 240;
+    int right = 315;
     int gap = 1;
     int center = std::max(200, w - left - right - gap * 2);
+    int paneY = top + 27;
+    int paneHeight = std::max(10, h - paneY - bottom);
 
-    MoveWindow(gProjectLabel, 8, 5, w - 16, 24, TRUE);
-    MoveWindow(gObjectList, 0, top, left, h - top - bottom, TRUE);
-    MoveWindow(gEditor, left + gap, top, center, h - top - bottom, TRUE);
-    MoveWindow(gInfo, left + gap + center + gap, top, right, h - top - bottom, TRUE);
+    MoveWindow(gTitleLabel, 8, 7, 84, 24, TRUE);
+    MoveWindow(gTitleEdit, 92, 4, std::min(390, std::max(120, w / 3)), 27, TRUE);
+    MoveWindow(gProjectLabel, 8, 39, w - 16, 24, TRUE);
+    MoveWindow(gObjectHeader, 6, top, left - 10, 23, TRUE);
+    MoveWindow(gInfoHeader, left + gap + center + 9, top, right - 12, 23, TRUE);
+    MoveWindow(gObjectList, 0, paneY, left, paneHeight, TRUE);
+    MoveWindow(gEditor, left + gap, paneY, center, paneHeight, TRUE);
+    MoveWindow(gPreview, left + gap, paneY, center, paneHeight, TRUE);
+    MoveWindow(gInfo, left + gap + center + gap, paneY, right, paneHeight, TRUE);
     MoveWindow(gStatus, 8, h - bottom + 2, w - 16, bottom - 4, TRUE);
 }
 
 static void BuildMenu(HWND hwnd) {
     HMENU bar = CreateMenu();
     HMENU file = CreatePopupMenu();
+    HMENU exportMenu = CreatePopupMenu();
     HMENU edit = CreatePopupMenu();
+    HMENU help = CreatePopupMenu();
 
     AppendMenuW(file, MF_STRING, IDM_NEW, L"&New Project\tCtrl+N");
     AppendMenuW(file, MF_STRING, IDM_OPEN, L"&Open Project\tCtrl+O");
     AppendMenuW(file, MF_STRING, IDM_SAVE, L"&Save\tCtrl+S");
+    AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(exportMenu, MF_STRING, IDM_EXPORT_DOCX, L"Word (.docx)");
+    AppendMenuW(exportMenu, MF_STRING, IDM_EXPORT_HWPX, L"Hancom (.hwpx) - Experimental");
+    AppendMenuW(exportMenu, MF_STRING, IDM_EXPORT_PDF, L"PDF (.pdf)");
+    AppendMenuW(file, MF_POPUP, (UINT_PTR)exportMenu, L"&Export");
 
     AppendMenuW(edit, MF_STRING, IDM_UNDO, L"&Undo\tCtrl+Z");
     AppendMenuW(edit, MF_STRING, IDM_REDO, L"&Redo\tCtrl+U");
+    AppendMenuW(edit, MF_STRING, IDM_TITLE, L"Edit Title\tCtrl+T");
     AppendMenuW(edit, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(edit, MF_STRING, IDM_CREATE_OBJECT, L"Create Object\tCtrl+Shift+O");
+    AppendMenuW(edit, MF_STRING, IDM_NEXT_MENTION, L"Next Object Occurrence\tCtrl+G");
+    AppendMenuW(edit, MF_STRING, IDM_PREVIEW, L"Toggle Screenplay Preview\tCtrl+Shift+P");
+    AppendMenuW(edit, MF_STRING, IDM_HISTORY_RESTORE, L"Restore Earlier Saved Version\tCtrl+Shift+H");
+    AppendMenuW(help, MF_STRING, IDM_HELP, L"Getting Started\tF1");
 
     AppendMenuW(bar, MF_POPUP, (UINT_PTR)file, L"&File");
     AppendMenuW(bar, MF_POPUP, (UINT_PTR)edit, L"&Edit");
+    AppendMenuW(bar, MF_POPUP, (UINT_PTR)help, L"&Help");
     SetMenu(hwnd, bar);
 }
 
@@ -449,8 +547,17 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                             CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
 
-        gProjectLabel = CreateWindowExW(0, L"STATIC", L"No project",
+        gTitleLabel = CreateWindowExW(0, L"STATIC", L"작품 제목:",
             WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 100, 24, hwnd, nullptr, nullptr, nullptr);
+        gTitleEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+            WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_READONLY, 0, 0, 300, 27,
+            hwnd, (HMENU)2004, nullptr, nullptr);
+        gProjectLabel = CreateWindowExW(0, L"STATIC", L"프로젝트가 없습니다. Ctrl+N: 새 작품  /  Ctrl+O: 열기  /  F1: 도움말",
+            WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 100, 24, hwnd, nullptr, nullptr, nullptr);
+        gObjectHeader = CreateWindowExW(0, L"STATIC", L"  오브젝트  |  Ctrl+Shift+O 등록",
+            WS_CHILD | WS_VISIBLE, 0,0,100,24,hwnd,nullptr,nullptr,nullptr);
+        gInfoHeader = CreateWindowExW(0, L"STATIC", L"  오브젝트 정보 / 도움말",
+            WS_CHILD | WS_VISIBLE, 0,0,100,24,hwnd,nullptr,nullptr,nullptr);
 
         gObjectList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
             WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY,
@@ -463,6 +570,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         gInfo = CreateWindowExW(WS_EX_CLIENTEDGE, MSFTEDIT_CLASS, L"",
             WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
             0, 0, 100, 100, hwnd, (HMENU)2003, nullptr, nullptr);
+        gPreview = CreateWindowExW(WS_EX_CLIENTEDGE, MSFTEDIT_CLASS, L"",
+            WS_CHILD | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+            0, 0, 100, 100, hwnd, (HMENU)2005, nullptr, nullptr);
 
         gStatus = CreateWindowExW(0, L"STATIC", L"Ready",
             WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 100, 24, hwnd, nullptr, nullptr, nullptr);
@@ -472,6 +582,14 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         SendMessageW(gInfo, WM_SETFONT, (WPARAM)gFont, TRUE);
         SendMessageW(gProjectLabel, WM_SETFONT, (WPARAM)gFont, TRUE);
         SendMessageW(gStatus, WM_SETFONT, (WPARAM)gFont, TRUE);
+        SendMessageW(gTitleLabel, WM_SETFONT, (WPARAM)gFont, TRUE);
+        SendMessageW(gTitleEdit, WM_SETFONT, (WPARAM)gFont, TRUE);
+        SendMessageW(gObjectHeader, WM_SETFONT, (WPARAM)gFont, TRUE);
+        SendMessageW(gInfoHeader, WM_SETFONT, (WPARAM)gFont, TRUE);
+        SendMessageW(gPreview, WM_SETFONT, (WPARAM)gFont, TRUE);
+        SetWindowTextW(gInfo, HELP_TEXT);
+        SetWindowTextW(gEditor, L"Ctrl+N 새 작품 만들기\r\nCtrl+O 기존 작품 열기\r\nF1 전체 사용법\r\n\r\n[이 화면은 원고로 저장되지 않습니다.]");
+        SendMessageW(gEditor, EM_SETREADONLY, TRUE, 0);
 
         SendMessageW(gEditor, EM_SETUNDOLIMIT, 10000, 0);
         return 0;
@@ -494,7 +612,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         WORD id = LOWORD(wParam);
         WORD code = HIWORD(wParam);
 
-        if ((HWND)lParam == gEditor && code == EN_CHANGE && !gLoading) {
+        if ((HWND)lParam == gTitleEdit && code == EN_CHANGE && !gLoading && !gProject.empty()) {
+            SetTimer(hwnd, TIMER_AUTOSAVE, 650, nullptr);
+        }
+        if ((HWND)lParam == gEditor && code == EN_CHANGE && !gLoading && !gProject.empty()) {
             SetTimer(hwnd, TIMER_AUTOSAVE, 800, nullptr);
             SetTimer(hwnd, TIMER_PARSE, 180, nullptr);
         }
@@ -525,12 +646,64 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         case IDM_CREATE_OBJECT:
             CreateObjectFromSelection();
             return 0;
+        case IDM_HELP:
+            SetWindowTextW(gInfo, HELP_TEXT);
+            if (gProject.empty()) MessageBoxW(hwnd, HELP_TEXT, L"repo 사용법", MB_OK | MB_ICONINFORMATION);
+            return 0;
+        case IDM_TITLE:
+            if (!gProject.empty()) SetFocus(gTitleEdit);
+            return 0;
+        case IDM_PREVIEW:
+            if (!gProject.empty()) {
+                gPreviewVisible = !gPreviewVisible;
+                if (gPreviewVisible) UpdatePreview();
+                ShowWindow(gEditor, gPreviewVisible ? SW_HIDE : SW_SHOW);
+                ShowWindow(gPreview, gPreviewVisible ? SW_SHOW : SW_HIDE);
+                SetFocus(gPreviewVisible ? gPreview : gEditor);
+            }
+            return 0;
+        case IDM_NEXT_MENTION: {
+            if (gObjects.empty()) return 0;
+            int row = (int)SendMessageW(gObjectList, LB_GETCURSEL, 0, 0);
+            if (row == LB_ERR || (size_t)row >= gObjects.size()) return 0;
+            const auto& name = gObjects[(size_t)row].name;
+            std::wstring body = WindowText(gEditor);
+            CHARRANGE selection{};
+            SendMessageW(gEditor, EM_EXGETSEL, 0, (LPARAM)&selection);
+            size_t next = body.find(name, size_t(selection.cpMax));
+            if (next == std::wstring::npos) next = body.find(name);
+            if (next != std::wstring::npos) {
+                CHARRANGE found{(LONG)next, (LONG)(next + name.size())};
+                SendMessageW(gEditor, EM_EXSETSEL, 0, (LPARAM)&found);
+                SendMessageW(gEditor, EM_SCROLLCARET, 0, 0);
+                if (gPreviewVisible) {
+                    gPreviewVisible = false;
+                    ShowWindow(gPreview, SW_HIDE);
+                    ShowWindow(gEditor, SW_SHOW);
+                }
+                SetFocus(gEditor);
+            }
+            return 0;
+        }
+        case IDM_HISTORY_RESTORE:
+            RestoreEarlierRevision();
+            return 0;
+        case IDM_EXPORT_DOCX:
+        case IDM_EXPORT_HWPX:
+        case IDM_EXPORT_PDF:
+            ExportFromEditor(id);
+            return 0;
         }
         break;
     }
 
     case WM_KEYDOWN:
         if (wParam == VK_ESCAPE) {
+            if (gPreviewVisible) {
+                gPreviewVisible = false;
+                ShowWindow(gPreview, SW_HIDE);
+                ShowWindow(gEditor, SW_SHOW);
+            }
             SetFocus(gEditor);
             return 0;
         }
@@ -564,7 +737,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     RegisterClassW(&wc);
 
     HWND hwnd = CreateWindowExW(
-        0, CLASS_NAME, L"repo portable 0.1.2",
+        0, CLASS_NAME, L"repo portable 0.2.0",
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT, 1440, 900,
         nullptr, nullptr, hInstance, nullptr);
@@ -580,7 +753,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
         {FVIRTKEY | FCONTROL, 'S', IDM_SAVE},
         {FVIRTKEY | FCONTROL, 'Z', IDM_UNDO},
         {FVIRTKEY | FCONTROL, 'U', IDM_REDO},
-        {FVIRTKEY | FCONTROL | FSHIFT, 'O', IDM_CREATE_OBJECT}
+        {FVIRTKEY | FCONTROL | FSHIFT, 'O', IDM_CREATE_OBJECT},
+        {FVIRTKEY | FCONTROL | FSHIFT, 'P', IDM_PREVIEW},
+        {FVIRTKEY | FCONTROL | FSHIFT, 'H', IDM_HISTORY_RESTORE},
+        {FVIRTKEY | FCONTROL, 'G', IDM_NEXT_MENTION},
+        {FVIRTKEY | FCONTROL, 'T', IDM_TITLE},
+        {FVIRTKEY, VK_F1, IDM_HELP}
     };
     HACCEL hAccel = CreateAcceleratorTableW(accel, ARRAYSIZE(accel));
 
