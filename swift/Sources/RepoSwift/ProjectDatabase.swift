@@ -21,6 +21,7 @@ final class ProjectDatabase {
         try execute("PRAGMA foreign_keys=ON")
         try execute("PRAGMA journal_mode=WAL")
         try execute("PRAGMA synchronous=NORMAL")
+        try execute("CREATE TABLE IF NOT EXISTS project_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         try execute("""
         CREATE TABLE IF NOT EXISTS objects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +55,33 @@ final class ProjectDatabase {
     func close() {
         if let db { sqlite3_close(db) }
         db = nil
+    }
+
+    func title() throws -> String? {
+        var result: String?
+        try withStatement("SELECT value FROM project_meta WHERE key='title' LIMIT 1") { stmt in
+            if sqlite3_step(stmt) == SQLITE_ROW { result = string(stmt, 0) }
+        }
+        return result
+    }
+
+    func setTitle(_ title: String) throws {
+        try withStatement("INSERT INTO project_meta(key,value) VALUES('title',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value") { stmt in
+            bindText(title, to: 1, in: stmt)
+            guard sqlite3_step(stmt) == SQLITE_DONE else {
+                throw DatabaseError.message(lastError)
+            }
+        }
+    }
+
+    func previousRevisionText() throws -> String? {
+        var result: String?
+        try withStatement("SELECT content FROM revisions WHERE document_id='script/main.txt' ORDER BY id DESC LIMIT 1 OFFSET 1") { stmt in
+            if sqlite3_step(stmt) == SQLITE_ROW {
+                result = string(stmt, 0)
+            }
+        }
+        return result
     }
 
     func ensureObject(name: String, type: String = "character") throws -> Int64 {
