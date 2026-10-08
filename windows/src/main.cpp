@@ -885,7 +885,23 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR commandLine, int nCmdShow) {
+    if (commandLine && wcsstr(commandLine, L"--self-test")) {
+        fs::path base = fs::temp_directory_path() / L"repo-export-smoke";
+        fs::create_directories(base);
+        const std::wstring sample =
+            L"# 병원 복도 - 밤\n[[인물:김철수]]\n@@ 안녕하세요 @@\n"
+            L"## [[김철수]]가 문을 연다 ##\n₩₩ 오늘도 비가 내렸다 ₩₩";
+        const std::vector<std::wstring> names{L"김철수"};
+        std::wstring error;
+        bool docx = RepoExport::Write(base / L"sample.docx",
+            RepoExport::Format::WordDocx, sample, L"테스트 작품", names, error);
+        bool hwpx = RepoExport::Write(base / L"sample.hwpx",
+            RepoExport::Format::HancomHwpx, sample, L"테스트 작품", names, error);
+        bool pdf = RepoExport::Write(base / L"sample.pdf",
+            RepoExport::Format::Pdf, sample, L"테스트 작품", names, error);
+        return (docx && hwpx && pdf) ? 0 : 12;
+    }
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     LoadLibraryW(L"Msftedit.dll");
 
