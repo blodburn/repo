@@ -40,6 +40,25 @@ jobs:
           swift build -c release --arch x86_64 --scratch-path .build-x86_64
           echo "X86_DIR=$X86_DIR" >> "$GITHUB_ENV"
 
+      - name: macOS document export smoke test
+        run: |
+          set -euo pipefail
+          "$ARM_DIR/repo-swift" --export-self-test
+          python3 - <<'PY'
+          import os, zipfile, xml.etree.ElementTree as ET
+          root = '/tmp/repo-swift-export-smoke'
+          for ext in ('docx', 'hwpx'):
+              path = os.path.join(root, 'sample.' + ext)
+              with zipfile.ZipFile(path) as z:
+                  assert z.testzip() is None
+                  for name in z.namelist():
+                      if name.endswith(('.xml', '.rels', '.hpf')):
+                          ET.fromstring(z.read(name))
+          pdf = open(os.path.join(root, 'sample.pdf'),'rb').read()
+          assert pdf.startswith(b'%PDF-') and b'%%EOF' in pdf[-128:]
+          print("macOS DOCX/HWPX XML and PDF smoke tests passed")
+          PY
+
       - name: Package macOS app
         run: |
           set -euo pipefail
