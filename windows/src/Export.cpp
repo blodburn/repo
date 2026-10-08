@@ -1,10 +1,10 @@
 #include "Export.h"
 
-#define NOMINMAX
 #include <windows.h>
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 #include <fstream>
 #include <set>
 #include <sstream>
@@ -311,7 +311,7 @@ bool Pdf(const fs::path& file, const std::vector<Paragraph>& paragraphs) {
         RECT measure{left, 0, left + areaWidth, 0};
         std::wstring s = para.text.empty() ? L" " : para.text;
         DrawTextW(dc, s.c_str(), -1, &measure, DT_WORDBREAK | DT_CALCRECT | DT_NOPREFIX);
-        int blockHeight = std::max(34, measure.bottom - measure.top + 11);
+        int blockHeight = std::max(34, int(measure.bottom - measure.top) + 11);
         if (y + blockHeight > height - bottom) {
             storePage();
             clear();
