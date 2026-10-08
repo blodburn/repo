@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 env:
-  RELEASE_TAG: v0.3.0
+  RELEASE_TAG: v0.3.1
 
 jobs:
   build-macos:
@@ -88,9 +88,9 @@ jobs:
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleShortVersionString</key>
-            <string>0.3.0</string>
+            <string>0.3.1</string>
             <key>CFBundleVersion</key>
-            <string>4</string>
+            <string>5</string>
             <key>LSMinimumSystemVersion</key>
             <string>13.0</string>
             <key>NSHighResolutionCapable</key>
@@ -136,6 +136,14 @@ jobs:
         shell: pwsh
         run: |
           cmake --build build-win --config Release --parallel
+
+      - name: Verify UTF-8 Korean UI strings
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path build-win/Release/repo.exe).Path
+          $proc = Start-Process -FilePath $exe -ArgumentList '--encoding-self-test' -PassThru -Wait
+          if ($proc.ExitCode -ne 0) { throw "Korean UTF-8 compile/runtime test failed: $($proc.ExitCode)" }
+          Write-Host "PASS: Korean UI labels, object names, won-sign syntax, UTF-8 conversion"
 
       - name: Editor Undo/Redo styling regression
         shell: pwsh
@@ -206,7 +214,7 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: main
-          name: repo v0.3.0
+          name: repo v0.3.1
           prerelease: true
           body: |
             Cross-platform preview release.
@@ -221,6 +229,7 @@ jobs:
             - native C++20 Win32 build
             - project title, help, object navigation and formatted preview
             - inline screenplay paragraph styling in the editor
+            - UTF-8 Korean UI compile fix and Hangul-friendly interface font
             - PDF, DOCX, experimental HWPX export
             - single portable EXE, no Qt DLL folder
             - statically linked SQLite and MSVC runtime
