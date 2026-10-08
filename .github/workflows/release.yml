@@ -94,7 +94,7 @@ jobs:
 
   build-windows:
     name: Windows Qt x64
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - name: Checkout
