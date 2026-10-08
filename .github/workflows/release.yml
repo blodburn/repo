@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 env:
-  RELEASE_TAG: v0.2.0
+  RELEASE_TAG: v0.3.0
 
 jobs:
   build-macos:
@@ -69,9 +69,9 @@ jobs:
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleShortVersionString</key>
-            <string>0.2.0</string>
+            <string>0.3.0</string>
             <key>CFBundleVersion</key>
-            <string>3</string>
+            <string>4</string>
             <key>LSMinimumSystemVersion</key>
             <string>13.0</string>
             <key>NSHighResolutionCapable</key>
@@ -179,19 +179,21 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: main
-          name: repo v0.2.0
+          name: repo v0.3.0
           prerelease: true
           body: |
             Cross-platform preview release.
 
             macOS:
             - native Swift/AppKit build
+            - project title, help, object navigation, preview, DOCX/PDF and experimental HWPX export
             - universal binary: Apple Silicon + Intel
             - macOS 13+
 
             Windows:
             - native C++20 Win32 build
             - project title, help, object navigation and formatted preview
+            - inline screenplay paragraph styling in the editor
             - PDF, DOCX, experimental HWPX export
             - single portable EXE, no Qt DLL folder
             - statically linked SQLite and MSVC runtime
