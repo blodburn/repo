@@ -45,8 +45,8 @@ jobs:
           set -euo pipefail
           "$ARM_DIR/repo-swift" --export-self-test
           python3 - <<'PY'
-          import os, zipfile, xml.etree.ElementTree as ET
-          root = '/tmp/repo-swift-export-smoke'
+          import os, tempfile, zipfile, xml.etree.ElementTree as ET
+          root = os.path.join(tempfile.gettempdir(), 'repo-swift-export-smoke')
           for ext in ('docx', 'hwpx'):
               path = os.path.join(root, 'sample.' + ext)
               with zipfile.ZipFile(path) as z:
