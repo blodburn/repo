@@ -483,9 +483,26 @@ static void ShowSelectedObject() {
     if (idx >= gObjects.size()) return;
     const auto& o = gObjects[idx];
     std::wstring info =
-        L"Name\r\n" + o.name +
-        L"\r\n\r\nType\r\n" + o.type +
-        L"\r\n\r\nMentions\r\n" + std::to_wstring(o.mentions);
+        L"오브젝트: " + o.name +
+        L"\r\n종류: " + o.type +
+        L"\r\n등장 횟수: " + std::to_wstring(o.mentions) +
+        L"\r\n\r\n등장 위치 (상위 25건)\r\n----------------------\r\n";
+    std::wstring document = WindowText(gEditor);
+    size_t offset = 0;
+    int count = 0;
+    while ((offset = document.find(o.name, offset)) != std::wstring::npos && count < 25) {
+        int line = 1 + int(std::count(document.begin(), document.begin() + offset, L'\n'));
+        size_t before = document.rfind(L'\n', offset);
+        size_t start = (before == std::wstring::npos) ? 0 : before + 1;
+        size_t end = document.find(L'\n', offset);
+        if (end == std::wstring::npos) end = document.size();
+        std::wstring excerpt = document.substr(start, std::min<size_t>(end-start, 52));
+        for (wchar_t& ch : excerpt) if (ch == L'\r') ch = L' ';
+        info += L"줄 " + std::to_wstring(line) + L": " + excerpt + L"\r\n";
+        offset += o.name.size();
+        ++count;
+    }
+    info += L"\r\nCtrl+G: 다음 등장으로 이동\r\nF1: 사용법";
     SetWindowTextW(gInfo, info.c_str());
 }
 
