@@ -9,9 +9,11 @@ if(MSVC)
 endif()
 
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
+find_package(ZLIB REQUIRED)
 
 add_executable(repo WIN32
   src/main.cpp
+  src/Export.cpp
 )
 
 target_compile_definitions(repo PRIVATE
@@ -23,9 +25,11 @@ target_compile_definitions(repo PRIVATE
 
 target_link_libraries(repo PRIVATE
   unofficial::sqlite3::sqlite3
+  ZLIB::ZLIB
   user32
   gdi32
   shell32
   ole32
   comdlg32
+  comctl32
 )
