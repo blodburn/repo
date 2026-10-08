@@ -137,6 +137,14 @@ jobs:
         run: |
           cmake --build build-win --config Release --parallel
 
+      - name: Editor Undo/Redo styling regression
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path build-win/Release/repo.exe).Path
+          $proc = Start-Process -FilePath $exe -ArgumentList '--style-self-test' -PassThru -Wait
+          if ($proc.ExitCode -ne 0) { throw "Styling Undo/Redo regression: $($proc.ExitCode)" }
+          Write-Host "Inline formatting preserves Ctrl+Z and Ctrl+U"
+
       - name: Export smoke test
         shell: pwsh
         run: |
