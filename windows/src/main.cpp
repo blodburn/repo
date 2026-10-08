@@ -248,15 +248,25 @@ static void LoadObjects() {
     sqlite3_finalize(stmt);
 }
 
+static void ShowSelectedObject();
 static void RefreshObjectList() {
+    sqlite3_int64 selectedID = 0;
+    int previous = (int)SendMessageW(gObjectList, LB_GETCURSEL, 0, 0);
+    if (previous != LB_ERR) {
+        size_t idx = (size_t)SendMessageW(gObjectList, LB_GETITEMDATA, previous, 0);
+        if (idx < gObjects.size()) selectedID = gObjects[idx].id;
+    }
     SendMessageW(gObjectList, LB_RESETCONTENT, 0, 0);
+    int restore = -1;
     for (size_t i = 0; i < gObjects.size(); ++i) {
         const auto& o = gObjects[i];
         std::wstring label = o.name + L"  [" + o.type + L"]  " + std::to_wstring(o.mentions);
         LRESULT row = SendMessageW(gObjectList, LB_ADDSTRING, 0, (LPARAM)label.c_str());
         SendMessageW(gObjectList, LB_SETITEMDATA, row, (LPARAM)i);
+        if (o.id == selectedID) restore = (int)row;
     }
-    if (!gObjects.empty()) SendMessageW(gObjectList, LB_SETCURSEL, 0, 0);
+    if (!gObjects.empty()) SendMessageW(gObjectList, LB_SETCURSEL, restore >= 0 ? restore : 0, 0);
+    ShowSelectedObject();
 }
 
 static void RebuildMentions(const std::wstring& text) {
@@ -535,6 +545,141 @@ static void BuildMenu(HWND hwnd) {
     AppendMenuW(bar, MF_POPUP, (UINT_PTR)edit, L"&Edit");
     AppendMenuW(bar, MF_POPUP, (UINT_PTR)help, L"&Help");
     SetMenu(hwnd, bar);
+}
+
+static void UpdatePreview() {
+    if (!gPreview || gProject.empty()) return;
+    std::vector<std::wstring> names;
+    for (const auto& o : gObjects)
+        if (o.type == L"character") names.push_back(o.name);
+    auto paragraphs = RepoExport::Parse(WindowText(gEditor), WindowText(gTitleEdit), names);
+    struct Range { LONG begin, end; RepoExport::Paragraph::Kind kind; };
+    std::vector<Range> ranges;
+    std::wstring display;
+    for (const auto& para : paragraphs) {
+        LONG start = (LONG)display.size();
+        display += para.text;
+        LONG end = (LONG)display.size();
+        display += L"\r\n";
+        ranges.push_back({start, end, para.kind});
+    }
+    SetWindowTextW(gPreview, display.c_str());
+    for (const auto& item : ranges) {
+        if (item.end <= item.begin) continue;
+        CHARRANGE range{item.begin, item.end};
+        SendMessageW(gPreview, EM_EXSETSEL, 0, (LPARAM)&range);
+        CHARFORMAT2W cf{};
+        cf.cbSize = sizeof(cf);
+        cf.dwMask = CFM_COLOR | CFM_BOLD;
+        cf.crTextColor = RGB(40, 40, 40);
+        cf.dwEffects = 0;
+        if (item.kind == RepoExport::Paragraph::Kind::Scene ||
+            item.kind == RepoExport::Paragraph::Kind::Character ||
+            item.kind == RepoExport::Paragraph::Kind::Title) cf.dwEffects |= CFE_BOLD;
+        if (item.kind == RepoExport::Paragraph::Kind::Dialogue) cf.crTextColor = RGB(36, 69, 117);
+        if (item.kind == RepoExport::Paragraph::Kind::Description) cf.crTextColor = RGB(65, 75, 65);
+        if (item.kind == RepoExport::Paragraph::Kind::Narration) cf.crTextColor = RGB(104, 48, 112);
+        SendMessageW(gPreview, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+        PARAFORMAT2 pf{};
+        pf.cbSize = sizeof(pf);
+        pf.dwMask = PFM_STARTINDENT | PFM_ALIGNMENT;
+        pf.wAlignment = PFA_LEFT;
+        pf.dxStartIndent = 100;
+        switch (item.kind) {
+        case RepoExport::Paragraph::Kind::Character: pf.dxStartIndent = 2500; break;
+        case RepoExport::Paragraph::Kind::Dialogue: pf.dxStartIndent = 1700; break;
+        case RepoExport::Paragraph::Kind::Narration: pf.dxStartIndent = 850; break;
+        case RepoExport::Paragraph::Kind::Title: pf.wAlignment = PFA_CENTER; break;
+        default: break;
+        }
+        SendMessageW(gPreview, EM_SETPARAFORMAT, 0, (LPARAM)&pf);
+    }
+    CHARRANGE cursor{0,0};
+    SendMessageW(gPreview, EM_EXSETSEL, 0, (LPARAM)&cursor);
+    SendMessageW(gPreview, EM_SCROLL, SB_TOP, 0);
+}
+
+static void RestoreEarlierRevision() {
+    if (!gDb || gProject.empty()) {
+        SetStatus(L"먼저 프로젝트를 여세요.");
+        return;
+    }
+    // Save current edits as their own restoration point before returning to an older one.
+    SaveProject("before-restore");
+    sqlite3_stmt* stmt = nullptr;
+    std::wstring previous;
+    if (sqlite3_prepare_v2(gDb, "SELECT content FROM revisions WHERE document_id='script/main.txt' "
+        "ORDER BY id DESC LIMIT 1 OFFSET 1", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* txt = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            if (txt) previous = Wide(txt);
+        }
+    }
+    sqlite3_finalize(stmt);
+    if (previous.empty()) {
+        SetStatus(L"복구할 이전 저장본이 없습니다.");
+        return;
+    }
+    if (MessageBoxW(gMain, L"이전 저장본으로 복원할까요?\n현재 원고는 복구 기록에 보존됩니다.",
+        L"이전 저장본 복원", MB_YESNO | MB_DEFBUTTON2 | MB_ICONQUESTION) != IDYES) return;
+    gLoading = true;
+    SetWindowTextW(gEditor, previous.c_str());
+    gLoading = false;
+    SaveProject("restore");
+    ParseDocument();
+    SetFocus(gEditor);
+}
+
+static void ExportFromEditor(UINT action) {
+    if (gProject.empty()) {
+        MessageBoxW(gMain, L"먼저 Ctrl+N으로 작품을 만들거나 Ctrl+O로 열어주세요.",
+            L"프로젝트 없음", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    RepoExport::Format type = RepoExport::Format::WordDocx;
+    const wchar_t* ext = L"docx";
+    const wchar_t* filter = L"Word Document (*.docx)\0*.docx\0All Files (*.*)\0*.*\0\0";
+    if (action == IDM_EXPORT_PDF) {
+        type = RepoExport::Format::Pdf; ext = L"pdf";
+        filter = L"PDF Document (*.pdf)\0*.pdf\0All Files (*.*)\0*.*\0\0";
+    }
+    if (action == IDM_EXPORT_HWPX) {
+        type = RepoExport::Format::HancomHwpx; ext = L"hwpx";
+        filter = L"Hancom HWPX (*.hwpx)\0*.hwpx\0All Files (*.*)\0*.*\0\0";
+    }
+    std::wstring name = WindowText(gTitleEdit);
+    if (name.empty()) name = L"script";
+    for (wchar_t& ch : name) {
+        if (wcschr(L"<>:/\\|?*\"", ch)) ch = L'_';
+    }
+    std::wstring suggested = name + L"." + ext;
+    wchar_t path[32768]{};
+    wcsncpy_s(path, suggested.c_str(), _TRUNCATE);
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = gMain;
+    ofn.lpstrFilter = filter;
+    ofn.lpstrFile = path;
+    ofn.nMaxFile = ARRAYSIZE(path);
+    ofn.lpstrDefExt = ext;
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER;
+    std::wstring initialDir = gProject.wstring();
+    ofn.lpstrInitialDir = initialDir.c_str();
+    if (!GetSaveFileNameW(&ofn)) return;
+
+    std::vector<std::wstring> names;
+    for (const auto& o : gObjects)
+        if (o.type == L"character") names.push_back(o.name);
+    std::wstring error;
+    if (!RepoExport::Write(fs::path(path), type, WindowText(gEditor),
+                           WindowText(gTitleEdit), names, error)) {
+        MessageBoxW(gMain, error.c_str(), L"내보내기 실패", MB_OK | MB_ICONERROR);
+        return;
+    }
+    SetStatus(L"내보내기 완료: " + std::wstring(path));
+    if (type == RepoExport::Format::HancomHwpx)
+        MessageBoxW(gMain, L"HWPX는 현재 실험적 내보내기입니다. 한컴오피스에서 파일 열림/서식을 확인하세요.",
+            L"HWPX 테스트 안내", MB_OK | MB_ICONINFORMATION);
 }
 
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
