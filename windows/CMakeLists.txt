@@ -6,6 +6,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(MSVC)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  # Source files are UTF-8 on GitHub. MSVC otherwise interprets Korean
+  # L"..." strings using the runner's legacy Windows code page.
+  # /utf-8 sets both the input source and execution encodings explicitly.
+  add_compile_options(/utf-8)
 endif()
 
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
