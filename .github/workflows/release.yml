@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 env:
-  RELEASE_TAG: v0.1.1
+  RELEASE_TAG: v0.1.2
 
 jobs:
   build-macos:
@@ -68,9 +68,9 @@ jobs:
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleShortVersionString</key>
-            <string>0.1.1</string>
+            <string>0.1.2</string>
             <key>CFBundleVersion</key>
-            <string>2</string>
+            <string>3</string>
             <key>LSMinimumSystemVersion</key>
             <string>13.0</string>
             <key>NSHighResolutionCapable</key>
@@ -93,47 +93,47 @@ jobs:
             dist/repo-macOS-universal.zip.sha256
 
   build-windows:
-    name: Windows Qt x64
+    name: Windows portable single EXE
     runs-on: windows-2022
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.8.3'
-          arch: 'win64_msvc2022_64'
-          cache: true
-
-      - name: Configure
+      - name: Install static SQLite
         shell: pwsh
         run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install sqlite3:x64-windows-static
+
+      - name: Configure portable Win32 build
+        shell: pwsh
+        run: |
+          cmake -S windows -B build-win -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static
 
       - name: Build
         shell: pwsh
         run: |
-          cmake --build build --config Release --parallel
+          cmake --build build-win --config Release --parallel
 
-      - name: Package Windows app
+      - name: Package single EXE
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist/repo-Windows-x64 | Out-Null
-          Copy-Item build/Release/repo.exe dist/repo-Windows-x64/repo.exe
-          windeployqt --release --no-translations --compiler-runtime dist/repo-Windows-x64/repo.exe
-          Compress-Archive -Path dist/repo-Windows-x64/* -DestinationPath dist/repo-Windows-x64.zip -Force
-          (Get-FileHash dist/repo-Windows-x64.zip -Algorithm SHA256).Hash.ToLower() + "  repo-Windows-x64.zip" |
-            Set-Content -Encoding ascii dist/repo-Windows-x64.zip.sha256
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item build-win/Release/repo.exe dist/repo-Windows-x64.exe
+          (Get-FileHash dist/repo-Windows-x64.exe -Algorithm SHA256).Hash.ToLower() + "  repo-Windows-x64.exe" |
+            Set-Content -Encoding ascii dist/repo-Windows-x64.exe.sha256
+          Write-Host "Dependencies:"
+          dumpbin /dependents dist/repo-Windows-x64.exe
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: repo-Windows-x64
+          name: repo-Windows-x64-portable
           path: |
-            dist/repo-Windows-x64.zip
-            dist/repo-Windows-x64.zip.sha256
+            dist/repo-Windows-x64.exe
+            dist/repo-Windows-x64.exe.sha256
 
   release:
     name: Publish GitHub Release
@@ -153,7 +153,7 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: main
-          name: repo v0.1.1
+          name: repo v0.1.2
           prerelease: true
           body: |
             Cross-platform preview release.
@@ -164,7 +164,9 @@ jobs:
             - macOS 13+
 
             Windows:
-            - native C++20 + Qt 6 build
+            - native C++20 Win32 build
+            - single portable EXE, no Qt DLL folder
+            - statically linked SQLite and MSVC runtime
             - Windows x64
 
             Common project format:
@@ -180,5 +182,5 @@ jobs:
           files: |
             dist/repo-macOS-universal.zip
             dist/repo-macOS-universal.zip.sha256
-            dist/repo-Windows-x64.zip
-            dist/repo-Windows-x64.zip.sha256
+            dist/repo-Windows-x64.exe
+            dist/repo-Windows-x64.exe.sha256
