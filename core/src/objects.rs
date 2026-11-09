@@ -92,6 +92,32 @@ impl ObjectEngine {
         id
     }
 
+    /// Restores an object with its database-backed stable identifier.
+    /// Also advances the ID counter so newly created entities never collide.
+    pub fn register_with_id(&mut self, id: &str, name: &str, category: &str) -> bool {
+        if id.trim().is_empty() || name.trim().is_empty() {
+            return false;
+        }
+        let lookup = name.trim().to_lowercase();
+        if self.objects.contains_key(id) || self.alias_map.contains_key(&lookup) {
+            return false;
+        }
+        if let Some((prefix, digits)) = id.rsplit_once('-') {
+            if let Ok(number) = digits.parse::<u32>() {
+                let count = self.counter.entry(prefix.to_string()).or_insert(0);
+                *count = (*count).max(number);
+            }
+        }
+        self.objects.insert(id.to_string(), ObjectEntity {
+            id: id.to_string(),
+            name: name.trim().to_string(),
+            category: category.to_string(),
+            aliases: Vec::new(),
+        });
+        self.alias_map.insert(lookup, id.to_string());
+        true
+    }
+
     /// Adds an alias to an existing object ID.
     pub fn add_alias(&mut self, object_id: &str, alias: &str) -> bool {
         let clean_alias = alias.trim();
