@@ -194,9 +194,13 @@ impl EditorBuffer {
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static TEST_SEQ: AtomicU64 = AtomicU64::new(0);
 
     fn journal(base: &str) -> (Journal, String) {
-        let root = std::env::temp_dir().join(format!("repo-editor-test-{}-{base}", std::process::id()));
+        // Manuscripts can contain '/' or newlines and are never valid filenames.
+        let root = std::env::temp_dir().join(format!("repo-editor-test-{}-{}",
+            std::process::id(), TEST_SEQ.fetch_add(1, Ordering::Relaxed)));
         fs::create_dir_all(&root).unwrap();
         let file = root.join("project.sqlite");
         let (j, text, _) = Journal::open(&file, base).unwrap();
