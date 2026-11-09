@@ -1,0 +1,89 @@
+name: Rust TUI Preview Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rust-tui-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test and build portable Windows binary
+        shell: pwsh
+        env:
+          RUSTFLAGS: '-C target-feature=+crt-static'
+        run: |
+          cargo test --workspace --all-targets
+          cargo build --release
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/release/repo.exe dist/repo-Rust-TUI-Windows-x64.exe
+          & dist/repo-Rust-TUI-Windows-x64.exe --encoding-self-test
+          if ($LASTEXITCODE -ne 0) { throw 'UTF-8 test failed' }
+          & dist/repo-Rust-TUI-Windows-x64.exe --style-self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Undo/Redo test failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-tui-windows
+          path: dist/repo-Rust-TUI-Windows-x64.exe
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+      - uses: Swatinem/rust-cache@v2
+      - name: Build Apple Silicon
+        run: cargo build --release --target aarch64-apple-darwin
+      - name: Build Intel
+        run: cargo build --release --target x86_64-apple-darwin
+      - name: Package single universal terminal executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          lipo -create target/aarch64-apple-darwin/release/repo target/x86_64-apple-darwin/release/repo -output dist/repo-Rust-TUI-macOS-universal
+          chmod +x dist/repo-Rust-TUI-macOS-universal
+          codesign --force --sign - --timestamp=none dist/repo-Rust-TUI-macOS-universal
+          lipo -info dist/repo-Rust-TUI-macOS-universal
+          dist/repo-Rust-TUI-macOS-universal --encoding-self-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-tui-macos
+          path: dist/repo-Rust-TUI-macOS-universal
+
+  release:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'rust-tui-*'
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.4.0-rust-tui-preview
+          name: repo Rust TUI v0.4.0 Preview
+          target_commitish: main
+          prerelease: true
+          body: |
+            Separate **terminal** build of repo. Does not replace the Windows Win32 and macOS Swift GUI v0.3.1.
+            Keyboard edit loop, F6 pane cycling, Unicode cursor, SQLite WAL journaling, snapshots and deleted text recovery.
+            Windows: run the single portable EXE in Windows Terminal.
+            macOS: chmod +x repo-Rust-TUI-macOS-universal, then execute it from Terminal.
+            Mac terminals generally require Ctrl shortcuts rather than Command.
+            The Rust PDF exporter still requires a CJK/CIDFont upgrade.
+          files: |
+            dist/repo-Rust-TUI-Windows-x64.exe
+            dist/repo-Rust-TUI-macOS-universal
