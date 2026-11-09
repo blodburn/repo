@@ -1,6 +1,6 @@
 [package]
 name = "repo-core"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 authors = ["blodburn <38660459+blodburn@users.noreply.github.com>"]
 description = "High-performance, memory-safe cross-platform core engine for repo writing editor"

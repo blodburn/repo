@@ -1,0 +1,21 @@
+[package]
+name = "repo"
+version = "0.4.0"
+edition = "2021"
+authors = ["blodburn <38660459+blodburn@users.noreply.github.com>"]
+description = "A lightweight, keyboard-first desktop editor for screenplays, novels, and scenario writing"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+
+[workspace]
+members = [
+    ".",
+    "core",
+]
+
+[dependencies]
+repo-core = { path = "core" }
+
+[[bin]]
+name = "repo"
+path = "rust/src/main.rs"

@@ -17,7 +17,7 @@ pub struct RepoEngineOpaque {
 /// Returns the semantic version string of repo_core.
 #[no_mangle]
 pub extern "C" fn repo_core_version() -> *const c_char {
-    static VERSION: &[u8] = b"0.3.1\0";
+    static VERSION: &[u8] = b"0.4.0\0";
     VERSION.as_ptr() as *const c_char
 }
 
