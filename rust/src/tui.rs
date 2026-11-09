@@ -532,14 +532,25 @@ impl ScreenplayUI {
         }
         let _terminal=TerminalSession::enter()?;
         let mut stdout=io::stdout();
+        let mut redraw=true;
         loop {
+            let previous_status=self.status.clone();
+            let was_parsing=self.parse_dirty;
             self.background_maintenance();
-            let (w,h)=terminal::size().map_err(|e| e.to_string())?;
-            queue!(stdout,MoveTo(0,0),Clear(ClearType::All),
-                Print(self.render_frame(w as usize,h as usize)))
-                .map_err(|e| e.to_string())?;
-            stdout.flush().map_err(|e| e.to_string())?;
-            if event::poll(Duration::from_millis(180)).map_err(|e| e.to_string())? {
+            if self.status!=previous_status || (was_parsing && !self.parse_dirty) {
+                redraw=true;
+            }
+            // Never keep flooding a PTY when the user is idle: it stalls
+            // terminal back-pressure and prevents keyboard events.
+            if redraw {
+                let (w,h)=terminal::size().map_err(|e| e.to_string())?;
+                queue!(stdout,MoveTo(0,0),Clear(ClearType::All),
+                    Print(self.render_frame(w as usize,h as usize)))
+                    .map_err(|e| e.to_string())?;
+                stdout.flush().map_err(|e| e.to_string())?;
+                redraw=false;
+            }
+            if event::poll(Duration::from_millis(160)).map_err(|e| e.to_string())? {
                 match event::read().map_err(|e| e.to_string())? {
                     Event::Key(key) => if !self.handle_key(key) {break;},
                     Event::Paste(content) if self.focused_pane==FocusedPane::CenterEditor =>
@@ -547,6 +558,7 @@ impl ScreenplayUI {
                     Event::Resize(_,_) => {},
                     _ => {},
                 }
+                redraw=true;
             }
         }
         Ok(())
