@@ -89,6 +89,12 @@ impl ScreenplayUI {
         let title = journal.title()?.unwrap_or_else(|| {
             root.file_name().and_then(|s| s.to_str()).unwrap_or("새 작품").to_string()
         });
+        let status = if recovered {
+            format!("SQLite 편집 내용 복구 완료 · 기존 TXT 백업: {} · Ctrl+S 저장",
+                recovery_backup.as_deref().unwrap_or(&layout.main_txt).display())
+        } else {
+            "F1 도움말 · F6 패널 전환 · Ctrl+S 저장 · Ctrl+Q 종료".to_string()
+        };
         let mut ui = Self {
             title,
             editor: EditorBuffer::new(restored),
@@ -98,12 +104,7 @@ impl ScreenplayUI {
             focused_pane: FocusedPane::CenterEditor,
             cursor_scroll: 0,
             left_selection: 0,
-            status: if recovered {
-                format!("SQLite 편집 내용 복구 완료 · 기존 TXT 백업: {} · Ctrl+S 저장",
-                    recovery_backup.as_deref().unwrap_or(&layout.main_txt).display())
-            } else {
-                "F1 도움말 · F6 패널 전환 · Ctrl+S 저장 · Ctrl+Q 종료".into()
-            },
+            status,
             mode: Mode::Edit,
             dirty: recovered,
             parse_dirty: false,
