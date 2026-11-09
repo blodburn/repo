@@ -75,6 +75,17 @@ impl ScreenplayUI {
         let layout = ProjectLayout::new(root);
         let from_txt = layout.load_manuscript().map_err(|e| e.to_string())?;
         let (journal, restored, recovered) = Journal::open(&layout.database, &from_txt)?;
+        // If another editor modified main.txt while this Rust journal was active,
+        // preserve the divergent TXT before any automatic save can replace it.
+        let recovery_backup = if recovered && layout.main_txt.exists() {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| e.to_string())?.as_millis();
+            let backup = layout.script_dir.join(format!("main.txt.pre-recovery-{stamp}.bak"));
+            std::fs::copy(&layout.main_txt, &backup)
+                .map_err(|e| format!("원본 TXT 백업 실패 · 복구 중단: {e}"))?;
+            Some(backup)
+        } else { None };
         let title = journal.title()?.unwrap_or_else(|| {
             root.file_name().and_then(|s| s.to_str()).unwrap_or("새 작품").to_string()
         });
@@ -88,7 +99,8 @@ impl ScreenplayUI {
             cursor_scroll: 0,
             left_selection: 0,
             status: if recovered {
-                "SQLite 저널에서 미저장 편집을 복구했습니다. Ctrl+S로 TXT에 반영하세요.".into()
+                format!("SQLite 편집 내용 복구 완료 · 기존 TXT 백업: {} · Ctrl+S 저장",
+                    recovery_backup.as_deref().unwrap_or(&layout.main_txt).display())
             } else {
                 "F1 도움말 · F6 패널 전환 · Ctrl+S 저장 · Ctrl+Q 종료".into()
             },
