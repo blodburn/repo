@@ -49,6 +49,7 @@ impl Journal {
         db.busy_timeout(Duration::from_secs(2)).map_err(|e| e.to_string())?;
         db.pragma_update(None, "journal_mode", "WAL").map_err(|e| e.to_string())?;
         db.pragma_update(None, "synchronous", "FULL").map_err(|e| e.to_string())?;
+        db.pragma_update(None, "foreign_keys", "ON").map_err(|e| e.to_string())?;
         db.execute_batch(
             "CREATE TABLE IF NOT EXISTS repo_edit_journal (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -287,6 +288,22 @@ mod tests {
         let hist = j.history(10).unwrap();
         assert!(hist.iter().any(|item|
             matches!(item, HistoryItem::Deletion { content, .. } if content == text)));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn object_name_and_alias_survive_without_original_marker() {
+        let path = database_path();
+        {
+            let (mut j, _, _) = Journal::open(&path, "[[김철수]]가 왔다").unwrap();
+            j.save_object("CHAR-0001", "김철수", "character", Some("철수")).unwrap();
+        }
+        let (j, _, _) = Journal::open(&path, "김철수가 왔다").unwrap();
+        let all = j.load_objects().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].id, "CHAR-0001");
+        assert_eq!(all[0].name, "김철수");
+        assert_eq!(all[0].aliases, vec!["철수"]);
         let _ = fs::remove_file(path);
     }
 
