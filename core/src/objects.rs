@@ -143,6 +143,13 @@ impl ObjectEngine {
         self.objects.len()
     }
 
+    /// Returns a deterministic list of registered entities for index rendering.
+    pub fn entities(&self) -> Vec<&ObjectEntity> {
+        let mut result: Vec<&ObjectEntity> = self.objects.values().collect();
+        result.sort_by(|a,b| a.name.cmp(&b.name));
+        result
+    }
+
     /// Gets an object entity by its persistent ID.
     pub fn get_by_id(&self, id: &str) -> Option<&ObjectEntity> {
         self.objects.get(id)
