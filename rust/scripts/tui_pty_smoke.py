@@ -3,6 +3,7 @@
 import fcntl
 import os
 import pty
+import select
 import signal
 import sqlite3
 import struct
@@ -34,8 +35,16 @@ def paste(master: int, text: str):
 
 def stop(proc, master):
     os.write(master, b"\x11")  # Ctrl+Q
+    deadline = time.monotonic() + 8
+    while proc.poll() is None and time.monotonic() < deadline:
+        readable, _, _ = select.select([master], [], [], 0.1)
+        if readable:
+            try:
+                os.read(master, 65536)  # prevent blocked writes on PTY master
+            except OSError:
+                pass
     try:
-        result = proc.wait(timeout=8)
+        result = proc.wait(timeout=1)
     finally:
         os.close(master)
     assert result == 0, f"TUI returned {result}"
