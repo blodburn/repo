@@ -4,6 +4,7 @@ use repo_core::objects::ObjectEngine;
 use repo_core::syntax::{parse_line, ElementKind};
 
 /// Active pane focus in the 3-pane layout.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusedPane {
     LeftIndex,
@@ -45,7 +46,7 @@ impl ScreenplayUI {
     pub fn render_frame(&self, width: usize, height: usize) -> String {
         let mut out = String::new();
         let border = "═".repeat(width);
-        let thin_border = "─".repeat(width);
+        let _thin_border = "─".repeat(width);
 
         // Header Top Bar
         out.push_str(&format!("┌{}┐\n", border));
@@ -61,10 +62,10 @@ impl ScreenplayUI {
         // Left Pane: Objects & Scenes
         let mut left_lines = Vec::new();
         left_lines.push(" [ Objects & Scenes ]".to_string());
-        left_lines.push(thin_border[..left_w.min(thin_border.len())].to_string());
+        left_lines.push("─".repeat(left_w.saturating_sub(2)));
 
         let lines: Vec<&str> = self.manuscript.lines().collect();
-        for (i, &line) in lines.iter().enumerate() {
+        for (_i, &line) in lines.iter().enumerate() {
             let parsed = parse_line(line);
             if parsed.kind == ElementKind::Scene {
                 left_lines.push(format!(" # {}", parsed.content));
@@ -78,7 +79,7 @@ impl ScreenplayUI {
         // Center Pane: Manuscript
         let mut center_lines = Vec::new();
         center_lines.push(format!(" [ 원고: {} ]", self.title));
-        center_lines.push(thin_border[..center_w.min(thin_border.len())].to_string());
+        center_lines.push("─".repeat(center_w.saturating_sub(2)));
 
         for (idx, &line) in lines.iter().enumerate() {
             let parsed = parse_line(line);
@@ -97,7 +98,7 @@ impl ScreenplayUI {
         // Right Pane: Detail
         let mut right_lines = Vec::new();
         right_lines.push(" [ Object Detail ]".to_string());
-        right_lines.push(thin_border[..right_w.min(thin_border.len())].to_string());
+        right_lines.push("─".repeat(right_w.saturating_sub(2)));
 
         if let Some(ref obj_id) = self.selected_object_id {
             if let Some(entity) = self.engine.get_by_id(obj_id) {

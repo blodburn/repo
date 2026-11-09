@@ -6,3 +6,5 @@ cmake-build-*/
 *.autosave
 *.swp
 *.tmp
+target/
+dist/

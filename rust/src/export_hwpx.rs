@@ -25,21 +25,21 @@ pub fn generate_hwpx(manuscript: &str, title: &str) -> Vec<u8> {
     zip.add_str("mimetype", "application/hwp+zip");
 
     // 2. version.xml
-    zip.add_str("version.xml", r#"<?xml version="1.0" encoding="UTF-8"?>
+    zip.add_str("version.xml", r##"<?xml version="1.0" encoding="UTF-8"?>
 <ha:HCFVersion xmlns:ha="http://www.hancom.co.kr/hwpml/2011/app"
 targetApplication="WORDPROCESSOR" major="5" minor="1" micro="0" buildNumber="0"
-osName="Windows" osVersion="10.0"/>"#);
+osName="Windows" osVersion="10.0"/>"##);
 
     // 3. META-INF/container.xml
-    zip.add_str("META-INF/container.xml", r#"<?xml version="1.0" encoding="UTF-8"?>
+    zip.add_str("META-INF/container.xml", r##"<?xml version="1.0" encoding="UTF-8"?>
 <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
   <rootfiles>
     <rootfile full-path="Contents/content.hpf" media-type="application/oebps-package+xml"/>
   </rootfiles>
-</container>"#);
+</container>"##);
 
     // 4. Contents/content.hpf
-    let hpf = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
+    let hpf = format!(r##"<?xml version="1.0" encoding="UTF-8"?>
 <opf:package xmlns:opf="http://www.idpf.org/2007/opf/" version="1.4" unique-identifier="uuid">
   <opf:metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:title>{}</dc:title>
@@ -52,11 +52,11 @@ osName="Windows" osVersion="10.0"/>"#);
   <opf:spine>
     <opf:itemref idref="section0"/>
   </opf:spine>
-</opf:package>"#, xml_escape(title));
+</opf:package>"##, xml_escape(title));
     zip.add_str("Contents/content.hpf", &hpf);
 
     // 5. Contents/header.xml
-    zip.add_str("Contents/header.xml", r#"<?xml version="1.0" encoding="UTF-8"?>
+    zip.add_str("Contents/header.xml", r##"<?xml version="1.0" encoding="UTF-8"?>
 <hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" version="1.4" secCnt="1">
   <hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/>
   <hh:refList>
@@ -80,12 +80,12 @@ osName="Windows" osVersion="10.0"/>"#);
       <hh:style id="0" type="PARA" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0" nextStyleIDRef="0" langID="1042"/>
     </hh:styles>
   </hh:refList>
-</hh:head>"#);
+</hh:head>"##);
 
     // 6. Contents/section0.xml
-    let mut sec = String::from(r#"<?xml version="1.0" encoding="UTF-8"?>
+    let mut sec = String::from(r##"<?xml version="1.0" encoding="UTF-8"?>
 <hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
-"#);
+"##);
 
     let mut para_id = 1;
     if !title.is_empty() {

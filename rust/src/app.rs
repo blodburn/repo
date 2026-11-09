@@ -1,15 +1,16 @@
 //! Application controller, undo/redo stack, and regression self-tests.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::export_docx::generate_docx;
 use crate::export_hwpx::generate_hwpx;
 use crate::export_pdf::generate_pdf;
 use repo_core::objects::ObjectEngine;
 use repo_core::storage::ProjectLayout;
-use repo_core::syntax::{clean_object_markup, parse_line, ElementKind};
+use repo_core::syntax::{parse_line, ElementKind};
 
+#[allow(dead_code)]
 pub struct EditorState {
     pub title: String,
     pub manuscript: String,

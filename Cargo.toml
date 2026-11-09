@@ -16,6 +16,11 @@ members = [
 [dependencies]
 repo-core = { path = "core" }
 
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = true
+
 [[bin]]
 name = "repo"
 path = "rust/src/main.rs"

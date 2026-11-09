@@ -1,6 +1,6 @@
 //! C-compatible Foreign Function Interface (FFI) bindings for C++ (Windows) and Swift (macOS).
 
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::os::raw::{c_char, c_int};
 use std::panic::catch_unwind;
 use std::ptr;
