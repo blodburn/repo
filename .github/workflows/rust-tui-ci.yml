@@ -1,0 +1,42 @@
+name: Rust TUI + SQLite journal CI
+
+on:
+  push:
+    branches: [feature/rust-tui-journal]
+  pull_request:
+    paths:
+      - "rust/**"
+      - "core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/rust-tui-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-test:
+    name: Rust ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022, macos-14]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Cargo unit and integration tests
+        run: cargo test --workspace --all-targets
+      - name: UTF-8 and editing checks
+        shell: bash
+        run: |
+          cargo run -- --encoding-self-test
+          cargo run -- --style-self-test
+          cargo run -- --self-test
+      - name: Production binary compilation
+        run: cargo build --release
+      - name: Verify live PTY input, autosave and crash recovery
+        if: runner.os == 'Linux'
+        run: python3 rust/scripts/tui_pty_smoke.py
