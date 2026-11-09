@@ -4,8 +4,9 @@ A lightweight, keyboard-first desktop editor for screenplays, novels, and scenar
 
 ## Stack
 
-- C++20
-- Qt 6 Widgets
+- Rust 2021 (`core/` — shared syntax, object & persistence engine)
+- C++20 (Windows Win32 / Qt 6)
+- Swift (macOS AppKit)
 - SQLite
 
 ## Core rules
@@ -32,6 +33,16 @@ YourProject/
 `main.txt` is always readable without this application. SQLite stores object metadata, mentions, aliases, and persistent revision snapshots.
 
 ## Build
+
+### Shared Core Engine (Rust)
+
+```bash
+cd core
+cargo test
+cargo build --release
+```
+
+### Desktop UI (Qt / CMake)
 
 Requirements: CMake 3.21+, Qt 6.5+ (Widgets, Sql), C++20 compiler.
 

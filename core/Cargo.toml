@@ -1,0 +1,21 @@
+[package]
+name = "repo-core"
+version = "0.3.1"
+edition = "2021"
+authors = ["blodburn <38660459+blodburn@users.noreply.github.com>"]
+description = "High-performance, memory-safe cross-platform core engine for repo writing editor"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+
+[lib]
+name = "repo_core"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[features]
+default = []
+
+[dependencies]
+# Zero external mandatory dependencies for maximal cross-platform portability.
+# Standard library is used for high-speed deterministic parsing and object indexing.
+
+[dev-dependencies]
