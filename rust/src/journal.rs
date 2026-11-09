@@ -27,6 +27,14 @@ impl HistoryItem {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct PersistedObject {
+    pub id: String,
+    pub name: String,
+    pub category: String,
+    pub aliases: Vec<String>,
+}
+
 pub struct Journal {
     db: Connection,
     edits_since_snapshot: usize,
@@ -66,6 +74,16 @@ impl Journal {
             CREATE TABLE IF NOT EXISTS repo_project_meta (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS repo_objects (
+                id TEXT PRIMARY KEY,
+                canonical_name TEXT NOT NULL UNIQUE,
+                category TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS repo_object_aliases (
+                alias TEXT PRIMARY KEY,
+                object_id TEXT NOT NULL REFERENCES repo_objects(id) ON DELETE CASCADE
             );"
         ).map_err(|e| e.to_string())?;
 
@@ -175,6 +193,46 @@ impl Journal {
             for item in items { out.push(item.map_err(|e| e.to_string())?); }
         }
         Ok(out)
+    }
+
+    pub fn save_object(&mut self, id: &str, name: &str, category: &str,
+                       alias: Option<&str>) -> Result<(), String> {
+        let tx = self.db.transaction().map_err(|e| e.to_string())?;
+        tx.execute(
+            "INSERT OR IGNORE INTO repo_objects(id,canonical_name,category) VALUES(?1,?2,?3)",
+            params![id, name, category]
+        ).map_err(|e| e.to_string())?;
+        if let Some(alias) = alias.filter(|a| !a.is_empty() && *a != name) {
+            tx.execute(
+                "INSERT OR IGNORE INTO repo_object_aliases(alias,object_id) VALUES(?1,?2)",
+                params![alias, id]
+            ).map_err(|e| e.to_string())?;
+        }
+        tx.commit().map_err(|e| e.to_string())
+    }
+
+    pub fn load_objects(&self) -> Result<Vec<PersistedObject>, String> {
+        let mut stmt = self.db.prepare(
+            "SELECT id, canonical_name, category FROM repo_objects ORDER BY created_at, id"
+        ).map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |row| {
+            Ok(PersistedObject {
+                id: row.get(0)?, name: row.get(1)?, category: row.get(2)?,
+                aliases: Vec::new()
+            })
+        }).map_err(|e| e.to_string())?;
+        let mut objects = Vec::new();
+        for row in rows {
+            let mut object = row.map_err(|e| e.to_string())?;
+            let mut aliases = self.db.prepare(
+                "SELECT alias FROM repo_object_aliases WHERE object_id=?1 ORDER BY alias"
+            ).map_err(|e| e.to_string())?;
+            let names = aliases.query_map([&object.id], |r| r.get::<_, String>(0))
+                .map_err(|e| e.to_string())?;
+            for name in names { object.aliases.push(name.map_err(|e| e.to_string())?); }
+            objects.push(object);
+        }
+        Ok(objects)
     }
 
     pub fn set_title(&mut self, title: &str) -> Result<(), String> {
