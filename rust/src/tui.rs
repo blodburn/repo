@@ -104,10 +104,21 @@ impl ScreenplayUI {
 
     fn rebuild_index(&mut self) {
         let mut engine = ObjectEngine::new();
+        match self.journal.load_objects() {
+            Ok(saved) => for object in saved {
+                engine.register_with_id(&object.id, &object.name, &object.category);
+                for alias in object.aliases { engine.add_alias(&object.id, &alias); }
+            },
+            Err(error) => self.status = format!("SQLite 오브젝트 로드 실패: {error}"),
+        }
         for line in self.editor.text.lines() {
             for object in parse_line(line).explicit_objects {
                 let id = engine.register(&object.name, &object.object_type);
                 if let Some(alias) = &object.alias { engine.add_alias(&id, alias); }
+                if let Err(error) = self.journal.save_object(&id, &object.name,
+                        &object.object_type, object.alias.as_deref()) {
+                    self.status = format!("SQLite 오브젝트 등록 실패: {error}");
+                }
             }
         }
         self.engine = engine;
@@ -115,18 +126,11 @@ impl ScreenplayUI {
     }
 
     fn objects(&self) -> Vec<(String,String,String)> {
-        let mut result = Vec::new();
-        for line in self.editor.text.lines() {
-            let parsed = parse_line(line);
-            for object in parsed.explicit_objects {
-                let label = format!("● {} [{}]", object.name, object.object_type);
-                if !result.iter().any(|(name,_,_)| name == &object.name) {
-                    let id = self.engine.lookup(&object.name).unwrap_or("").to_string();
-                    result.push((object.name, label, id));
-                }
-            }
-        }
-        result
+        self.engine.entities().iter().map(|object| (
+            object.name.clone(),
+            format!("● {} [{}]", object.name, object.category),
+            object.id.clone()
+        )).collect()
     }
 
     fn save(&mut self, reason: &str) -> Result<(), String> {
