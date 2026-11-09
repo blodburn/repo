@@ -455,7 +455,7 @@ impl ScreenplayUI {
                 "₩₩ 나레이션 ₩₩", "[[김철수]] / [[장소:서울역]]",
                 "Mac Terminal은 Command가 전달되지 않을 수 있습니다.".into(),
                 "이 TUI에서는 Ctrl 단축키를 사용하세요.".into(),
-            ].into_iter().collect()),
+            ].into_iter().collect::<Vec<String>>()),
             Mode::Preview => {
                 let mut lines=vec![" [ 시나리오 형식 미리보기 ] Esc: 돌아가기".into()];
                 for line in self.editor.text.lines().take(h.saturating_sub(3)) {
