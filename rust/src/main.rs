@@ -1,6 +1,8 @@
 //! repo — A lightweight, keyboard-first desktop editor for screenplays, novels, and scenario writing.
 
 mod app;
+mod editor;
+mod journal;
 mod export_docx;
 mod export_hwpx;
 mod export_pdf;
@@ -17,8 +19,7 @@ use export_docx::generate_docx;
 use export_hwpx::generate_hwpx;
 use export_pdf::generate_pdf;
 use repo_core::export::{export_clean_text, ExportOptions};
-use repo_core::storage::ProjectLayout;
-use tui::ScreenplayUI;
+use tui::run_interactive;
 
 fn print_help() {
     println!(r#"repo v0.4.0 — 이야기 편집기 (Rust 네이티브)
@@ -154,29 +155,8 @@ fn main() {
         env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
     };
 
-    let layout = ProjectLayout::new(&project_dir);
-    let manuscript = layout.load_manuscript().unwrap_or_else(|_| {
-        r#"# INT. 병원 복도 - 밤
-
-## 형광등이 깜빡인다. [[김철수]]가 나타난다. ##
-
-김철수
-@@ [[박영희]]는 어디 있어? @@
-
-간호사가 복도 끝을 본다.
-
-₩₩ 그날 밤, 아무도 진실을 알지 못했다. ₩₩
-
-// 이 메모는 최종 문서에서 제외된다.
-"#.to_string()
-    });
-
-    let title = project_dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("밤의 증인");
-
-    let ui = ScreenplayUI::new(title, &manuscript);
-    let frame = ui.render_frame(96, 26);
-    println!("{}", frame);
+    if let Err(error) = run_interactive(&project_dir) {
+        eprintln!("repo TUI 실행 실패: {error}");
+        exit(1);
+    }
 }

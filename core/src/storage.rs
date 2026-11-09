@@ -50,7 +50,12 @@ impl ProjectLayout {
             file.sync_all()?;
         }
 
-        fs::rename(tmp_path, &self.main_txt)?;
+        replace_existing_atomic(&tmp_path, &self.main_txt)?;
+        #[cfg(unix)]
+        {
+            // Persist directory metadata after the rename.
+            File::open(&self.script_dir)?.sync_all()?;
+        }
         Ok(())
     }
 
@@ -62,6 +67,33 @@ impl ProjectLayout {
             Ok(String::new())
         }
     }
+}
+
+#[cfg(not(windows))]
+fn replace_existing_atomic(from: &Path, to: &Path) -> io::Result<()> {
+    fs::rename(from, to)
+}
+
+#[cfg(windows)]
+fn replace_existing_atomic(from: &Path, to: &Path) -> io::Result<()> {
+    // std::fs::rename is not guaranteed to overwrite an existing Windows file.
+    // MoveFileExW with REPLACE_EXISTING preserves atomic destination replacement.
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "Kernel32")]
+    extern "system" {
+        fn MoveFileExW(existing: *const u16, new_name: *const u16, flags: u32) -> i32;
+    }
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x00000001;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x00000008;
+    let old: Vec<u16> = from.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let new: Vec<u16> = to.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let ok = unsafe {
+        MoveFileExW(old.as_ptr(), new.as_ptr(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)
+    };
+    if ok == 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
 }
 
 /// Standard SQLite schema DDL for repo projects.
