@@ -62,7 +62,7 @@ final class MainWindowController: NSWindowController, NSTextViewDelegate, NSTabl
             backing: .buffered,
             defer: false
         )
-        window.title = "repo 0.3.0"
+        window.title = "repo 0.4.2"
         window.minSize = NSSize(width: 900, height: 600)
         super.init(window: window)
 
@@ -233,7 +233,7 @@ final class MainWindowController: NSWindowController, NSTextViewDelegate, NSTabl
             let script = scriptFolder.appendingPathComponent("main.txt")
             let text = editor.string
             try database.setTitle(titleField.stringValue)
-            window?.title = (titleField.stringValue.isEmpty ? "repo" : titleField.stringValue) + " — repo 0.3.0"
+            window?.title = (titleField.stringValue.isEmpty ? "repo" : titleField.stringValue) + " — repo 0.4.2"
             guard let data = text.data(using: .utf8) else { throw CocoaError(.fileWriteInapplicableStringEncoding) }
             try data.write(to: script, options: .atomic)
 
@@ -412,7 +412,7 @@ final class MainWindowController: NSWindowController, NSTextViewDelegate, NSTabl
 
             parseDocument()
             lastRevisionText = editor.string
-            window?.title = titleField.stringValue + " — repo 0.3.0"
+            window?.title = titleField.stringValue + " — repo 0.4.2"
             saveNow(reason: "open")
             window?.makeFirstResponder(editor)
             status("Project loaded")

@@ -1,49 +1,27 @@
 import Foundation
 
+/// Object discovery for the AppKit UI.
+///
+/// The grammar and the Korean particle aware mention rules live in the Rust core
+/// (`core/src/syntax.rs`, `core/src/objects.rs`); this type only adapts the core's
+/// results to the shapes the window controller and the project database expect.
 enum ScriptParser {
-    private static let explicitPattern = #"[[(?:(?<type>[^:]|]+):)?(?<name>[^]|]+)(?:|[^]]+)?]]"#
-
     static func explicitObjects(in text: String) -> [(name: String, type: String)] {
-        guard let regex = try? NSRegularExpression(pattern: explicitPattern) else { return [] }
-        let ns = text as NSString
-        let range = NSRange(location: 0, length: ns.length)
-
-        return regex.matches(in: text, range: range).compactMap { match in
-            let nameRange = match.range(withName: "name")
-            guard nameRange.location != NSNotFound else { return nil }
-            let name = ns.substring(with: nameRange).trimmingCharacters(in: .whitespacesAndNewlines)
-            let typeRange = match.range(withName: "type")
-            let rawType = typeRange.location == NSNotFound ? "" : ns.substring(with: typeRange)
-            return (name, normalizeType(rawType))
-        }
+        RepoCore.explicitObjects(in: text).map { (name: $0.name, type: $0.type) }
     }
 
+    /// Mentions as `(object id, UTF-16 offset)` pairs, ready for the SQLite
+    /// `mentions` table and for `NSRange` based navigation.
     static func mentions(in text: String, lexicon: [String: Int64]) -> [(Int64, Int)] {
-        let ns = text as NSString
-        var result: [(Int64, Int)] = []
+        guard !lexicon.isEmpty, let engine = RepoCoreEngine() else { return [] }
 
         for (name, id) in lexicon where !name.isEmpty {
-            var searchRange = NSRange(location: 0, length: ns.length)
-            while searchRange.length > 0 {
-                let range = ns.range(of: name, options: [], range: searchRange)
-                if range.location == NSNotFound { break }
-                result.append((id, range.location))
-                let next = range.location + max(1, range.length)
-                if next >= ns.length { break }
-                searchRange = NSRange(location: next, length: ns.length - next)
-            }
+            engine.register(id: String(id), name: name, type: "character")
         }
-        return result
-    }
 
-    private static func normalizeType(_ raw: String) -> String {
-        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "", "인물", "character": return "character"
-        case "장소", "location": return "location"
-        case "사건", "event": return "event"
-        case "조직", "organization": return "organization"
-        case "물건", "item": return "item"
-        default: return raw
+        return engine.mentions(in: text).compactMap { mention in
+            guard let id = Int64(mention.objectID) else { return nil }
+            return (id, mention.utf16Offset)
         }
     }
 }

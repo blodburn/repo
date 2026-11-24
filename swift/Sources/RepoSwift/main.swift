@@ -124,7 +124,25 @@ final class MenuActions: NSObject {
     }
 }
 
+if CommandLine.arguments.contains("--core-self-test") {
+    let failures = RepoCore.selfTest()
+    if failures.isEmpty {
+        print("repo swift core self test passed: repo-core \(RepoCore.version) (abi \(RepoCore.abiVersion))")
+        Darwin.exit(0)
+    }
+    for failure in failures { fputs("core self test failure: \(failure)\n", stderr) }
+    Darwin.exit(13)
+}
+
 if CommandLine.arguments.contains("--export-self-test") {
+    // The exporters below run on the Rust core; fail fast if the engine is not
+    // linked or behaves differently from the header contract.
+    let coreFailures = RepoCore.selfTest()
+    if !coreFailures.isEmpty {
+        for failure in coreFailures { fputs("core self test failure: \(failure)\n", stderr) }
+        Darwin.exit(13)
+    }
+
     do {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("repo-swift-export-smoke", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

@@ -1,4 +1,5 @@
 #include "Export.h"
+#include "RepoCore.h"
 
 #include <windows.h>
 #include <algorithm>
@@ -22,35 +23,6 @@ std::string Utf8(const std::wstring& s) {
     std::string result(n, '\0');
     WideCharToMultiByte(CP_UTF8, 0, s.data(), (int)s.size(), result.data(), n, nullptr, nullptr);
     return result;
-}
-
-std::wstring Trim(std::wstring s) {
-    auto ws = [](wchar_t c) { return iswspace(c) != 0; };
-    while (!s.empty() && ws(s.front())) s.erase(s.begin());
-    while (!s.empty() && ws(s.back())) s.pop_back();
-    return s;
-}
-
-std::wstring CleanObjectMarkup(const std::wstring& input) {
-    std::wstring out;
-    size_t pos = 0;
-    while (pos < input.size()) {
-        size_t start = input.find(L"[[", pos);
-        if (start == std::wstring::npos) { out += input.substr(pos); break; }
-        out += input.substr(pos, start - pos);
-        size_t end = input.find(L"]]", start + 2);
-        if (end == std::wstring::npos) { out += input.substr(start); break; }
-        std::wstring inner = input.substr(start + 2, end - start - 2);
-        size_t bar = inner.find(L'|');
-        if (bar != std::wstring::npos) inner = inner.substr(bar + 1);
-        else {
-            size_t colon = inner.find(L':');
-            if (colon != std::wstring::npos) inner = inner.substr(colon + 1);
-        }
-        out += inner;
-        pos = end + 2;
-    }
-    return out;
 }
 
 std::string XmlEscape(const std::wstring& text) {
@@ -354,6 +326,8 @@ bool Pdf(const fs::path& file, const std::vector<Paragraph>& paragraphs) {
 }
 } // namespace
 
+// Paragraph classification and markup cleaning come from the Rust core, so the
+// DOCX/HWPX/PDF output follows exactly the grammar the editor shows.
 std::vector<Paragraph> Parse(const std::wstring& source, const std::wstring& title,
                              const std::vector<std::wstring>& characterNames) {
     std::vector<Paragraph> out;
@@ -364,24 +338,27 @@ std::vector<Paragraph> Parse(const std::wstring& source, const std::wstring& tit
     while (pos <= source.size()) {
         size_t end = source.find(L'\n', pos);
         if (end == std::wstring::npos) end = source.size();
-        std::wstring line = Trim(source.substr(pos, end - pos));
+        const std::wstring rawLine = source.substr(pos, end - pos);
         pos = end + 1;
-        if (line.size() >= 2 && line.substr(0,2) == L"//") {
-            if (end == source.size()) break;
+
+        auto parsed = RepoCore::ParseLine(rawLine);
+        // Notes are author comments and never reach an exported document.
+        if (parsed.first == RepoCore::Kind::Note) {
+            if (end >= source.size()) break;
             continue;
         }
+
         Paragraph::Kind kind = Paragraph::Kind::Action;
-        if (line.empty()) kind = Paragraph::Kind::Blank;
-        else if (line.size() >= 4 && line.substr(0,2) == L"@@" && line.substr(line.size()-2) == L"@@") {
-            line = Trim(line.substr(2, line.size()-4)); kind = Paragraph::Kind::Dialogue;
-        } else if (line.size() >= 4 && line.substr(0,2) == L"##" && line.substr(line.size()-2) == L"##") {
-            line = Trim(line.substr(2, line.size()-4)); kind = Paragraph::Kind::Description;
-        } else if (line.size() >= 4 && line.substr(0,2) == L"₩₩" && line.substr(line.size()-2) == L"₩₩") {
-            line = Trim(line.substr(2, line.size()-4)); kind = Paragraph::Kind::Narration;
-        } else if (!line.empty() && line[0] == L'#') {
-            line = Trim(line.substr(1)); kind = Paragraph::Kind::Scene;
+        switch (parsed.first) {
+        case RepoCore::Kind::Empty:       kind = Paragraph::Kind::Blank; break;
+        case RepoCore::Kind::Dialogue:    kind = Paragraph::Kind::Dialogue; break;
+        case RepoCore::Kind::Description: kind = Paragraph::Kind::Description; break;
+        case RepoCore::Kind::Narration:   kind = Paragraph::Kind::Narration; break;
+        case RepoCore::Kind::Scene:       kind = Paragraph::Kind::Scene; break;
+        default: break;
         }
-        line = CleanObjectMarkup(line);
+
+        std::wstring line = parsed.second;
         if (kind == Paragraph::Kind::Action && names.count(line)) kind = Paragraph::Kind::Character;
         out.push_back({kind, line});
         if (end == source.size()) break;

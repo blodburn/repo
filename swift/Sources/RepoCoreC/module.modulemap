@@ -1,0 +1,4 @@
+module RepoCoreC {
+    umbrella header "include/repo_core.h"
+    export *
+}

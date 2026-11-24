@@ -6,6 +6,7 @@
 #include <tom.h>
 #include <commdlg.h>
 #include "Export.h"
+#include "RepoCore.h"
 #include <shlobj.h>
 #include <sqlite3.h>
 
@@ -16,6 +17,7 @@
 #include <utility>
 #include <vector>
 #include <cwctype>
+#include <exception>
 
 namespace fs = std::filesystem;
 
@@ -198,36 +200,12 @@ static sqlite3_int64 EnsureObject(const std::wstring& rawName, const std::wstrin
     return sqlite3_last_insert_rowid(gDb);
 }
 
-static std::wstring NormalizeType(std::wstring t) {
-    while (!t.empty() && iswspace(t.front())) t.erase(t.begin());
-    while (!t.empty() && iswspace(t.back())) t.pop_back();
-    if (t.empty() || t == L"인물" || t == L"character") return L"character";
-    if (t == L"장소" || t == L"location") return L"location";
-    if (t == L"사건" || t == L"event") return L"event";
-    if (t == L"조직" || t == L"organization") return L"organization";
-    if (t == L"물건" || t == L"item") return L"item";
-    return t;
-}
-
+// Object markers are parsed by the Rust core so the Windows, macOS and core
+// grammars cannot drift apart (aliases, type keywords, nested brackets).
 static void ScanExplicitObjects(const std::wstring& text) {
-    size_t pos = 0;
-    while (true) {
-        size_t a = text.find(L"[[", pos);
-        if (a == std::wstring::npos) break;
-        size_t b = text.find(L"]]", a + 2);
-        if (b == std::wstring::npos) break;
-        std::wstring body = text.substr(a + 2, b - a - 2);
-        size_t pipe = body.find(L'|');
-        if (pipe != std::wstring::npos) body = body.substr(0, pipe);
-        std::wstring type = L"character";
-        std::wstring name = body;
-        size_t colon = body.find(L':');
-        if (colon != std::wstring::npos) {
-            type = NormalizeType(body.substr(0, colon));
-            name = body.substr(colon + 1);
-        }
-        EnsureObject(name, type);
-        pos = b + 2;
+    for (const auto& object : RepoCore::ExtractObjects(text)) {
+        if (object.name.empty()) continue;
+        EnsureObject(object.name, object.type.empty() ? L"character" : object.type);
     }
 }
 
@@ -283,18 +261,28 @@ static void RebuildMentions(const std::wstring& text) {
     sqlite3_step(del);
     sqlite3_finalize(del);
 
-    sqlite3_stmt* ins = nullptr;
-    sqlite3_prepare_v2(gDb, "INSERT INTO mentions(document_id,object_id,char_offset) VALUES('script/main.txt',?,?)", -1, &ins, nullptr);
+    // Mention scanning (longest match first, Korean particle boundaries) is the
+    // Rust core's job; the database row id is the engine identifier.
+    RepoCore::Engine engine;
     for (const auto& o : gObjects) {
         if (o.name.empty()) continue;
-        size_t pos = 0;
-        while ((pos = text.find(o.name, pos)) != std::wstring::npos) {
-            sqlite3_reset(ins);
-            sqlite3_bind_int64(ins, 1, o.id);
-            sqlite3_bind_int64(ins, 2, (sqlite3_int64)pos);
-            sqlite3_step(ins);
-            pos += std::max<size_t>(1, o.name.size());
+        engine.RegisterId(std::to_string(o.id), o.name, o.type);
+    }
+    const auto mentions = engine.FindMentions(text);
+
+    sqlite3_stmt* ins = nullptr;
+    sqlite3_prepare_v2(gDb, "INSERT INTO mentions(document_id,object_id,char_offset) VALUES('script/main.txt',?,?)", -1, &ins, nullptr);
+    for (const auto& mention : mentions) {
+        sqlite3_int64 objectId = 0;
+        try {
+            objectId = std::stoll(mention.objectId);
+        } catch (const std::exception&) {
+            continue;
         }
+        sqlite3_reset(ins);
+        sqlite3_bind_int64(ins, 1, objectId);
+        sqlite3_bind_int64(ins, 2, (sqlite3_int64)mention.utf16Offset);
+        sqlite3_step(ins);
     }
     sqlite3_finalize(ins);
     Exec("COMMIT;");
@@ -325,12 +313,15 @@ static void StyleEditorLine(int lineIndex) {
     LONG indent = 140, rightIndent = 120;
     COLORREF color = RGB(40,40,40);
     bool bold = false;
-    if (raw.rfind(L"@@", 0) == 0) { indent=1600; rightIndent=1200; color=RGB(29,57,105); }
-    else if (raw.rfind(L"##", 0) == 0) { indent=140; rightIndent=120; color=RGB(62,74,68); }
-    else if (raw.rfind(L"₩₩", 0) == 0) { indent=700; rightIndent=650; color=RGB(92,55,113); }
-    else if (raw.rfind(L"#", 0) == 0) { indent=140; rightIndent=120; bold=true; }
-    else if (raw.rfind(L"//", 0) == 0) { color=RGB(130,130,130); }
-    else if (!raw.empty()) {
+    // The line kind comes from the Rust core, so the editor colouring follows
+    // exactly the grammar the exporter and the object index use.
+    switch (RepoCore::ClassifyLine(raw)) {
+    case RepoCore::Kind::Dialogue:    indent=1600; rightIndent=1200; color=RGB(29,57,105); break;
+    case RepoCore::Kind::Description: indent=140;  rightIndent=120;  color=RGB(62,74,68); break;
+    case RepoCore::Kind::Narration:   indent=700;  rightIndent=650;  color=RGB(92,55,113); break;
+    case RepoCore::Kind::Scene:       indent=140;  rightIndent=120;  bold=true; break;
+    case RepoCore::Kind::Note:        color=RGB(130,130,130); break;
+    case RepoCore::Kind::PlainText: {
         for (const auto& object : gObjects) {
             if (object.type != L"character") continue;
             if (raw == object.name || raw == L"[[" + object.name + L"]]") {
@@ -338,6 +329,9 @@ static void StyleEditorLine(int lineIndex) {
                 break;
             }
         }
+        break;
+    }
+    default: break;
     }
     CHARRANGE prior{};
     SendMessageW(gEditor, EM_EXGETSEL, 0, (LPARAM)&prior);
@@ -454,7 +448,7 @@ static void SaveTitle() {
     sqlite3_bind_text(stmt, 1, value.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    std::wstring caption = (gTitle.empty() ? L"repo" : gTitle) + L" - repo 0.3.1";
+    std::wstring caption = (gTitle.empty() ? L"repo" : gTitle) + L" - repo 0.4.2";
     SetWindowTextW(gMain, caption.c_str());
 }
 static std::wstring LoadTitle() {
@@ -1035,6 +1029,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR commandLine, int nCmdS
         CoUninitialize();
         return (undoOK && redoOK) ? 0 : 14;
     }
+    if (commandLine && wcsstr(commandLine, L"--core-self-test")) {
+        std::string report;
+        const bool ok = RepoCore::SelfTest(report);
+        if (!ok) MessageBoxA(nullptr, report.c_str(), "repo-core self test failed", MB_ICONERROR | MB_OK);
+        return ok ? 0 : 13;
+    }
     if (commandLine && wcsstr(commandLine, L"--self-test")) {
         fs::path base = fs::temp_directory_path() / L"repo-export-smoke";
         fs::create_directories(base);
@@ -1064,7 +1064,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR commandLine, int nCmdS
     RegisterClassW(&wc);
 
     HWND hwnd = CreateWindowExW(
-        0, CLASS_NAME, L"repo portable 0.3.1",
+        0, CLASS_NAME, L"repo portable 0.4.2",
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT, 1440, 900,
         nullptr, nullptr, hInstance, nullptr);

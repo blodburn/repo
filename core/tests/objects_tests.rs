@@ -70,3 +70,35 @@ fn test_greedy_longest_alias_matching() {
     assert_eq!(mentions[0].matched_name, "김 형사");
     assert_ne!(mentions[0].object_id, id_kim);
 }
+
+#[test]
+fn test_document_scan_reports_absolute_offsets() {
+    let mut engine = ObjectEngine::new();
+    let id = engine.register("김철수", "character");
+
+    let text = "# 장면\n김철수가 들어온다.\n\n두 번째 줄: 김철수";
+    let mentions = engine.scan_document(text);
+    assert_eq!(mentions.len(), 2);
+
+    assert_eq!(mentions[0].object_id, id);
+    assert_eq!(mentions[0].line_index, 1);
+    assert_eq!(mentions[0].byte_offset, "# 장면\n".len());
+    assert_eq!(mentions[0].char_offset, "# 장면\n".chars().count());
+    assert_eq!(
+        mentions[0].utf16_offset,
+        "# 장면\n".encode_utf16().count()
+    );
+
+    let expected_char = "# 장면\n김철수가 들어온다.\n\n두 번째 줄: ".chars().count();
+    assert_eq!(mentions[1].line_index, 3);
+    assert_eq!(mentions[1].char_offset, expected_char);
+
+    // CRLF input must not shift the offsets of later lines.
+    let crlf = engine.scan_document("가\r\n김철수가 온다\r\n");
+    assert_eq!(crlf.len(), 1);
+    assert_eq!(crlf[0].line_index, 1);
+    assert_eq!(
+        crlf[0].utf16_offset,
+        "가\r\n".encode_utf16().count()
+    );
+}

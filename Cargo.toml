@@ -1,6 +1,6 @@
 [package]
 name = "repo"
-version = "0.4.0"
+version = "0.4.2"
 edition = "2021"
 authors = ["blodburn <38660459+blodburn@users.noreply.github.com>"]
 description = "A lightweight, keyboard-first desktop editor for screenplays, novels, and scenario writing"

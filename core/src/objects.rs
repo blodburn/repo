@@ -34,6 +34,30 @@ pub struct Mention {
     pub scene_id: Option<String>,
 }
 
+/// A mention resolved against a whole manuscript document.
+///
+/// Offsets in [`Mention`] are relative to a single line; a document scan needs
+/// absolute positions because the GUI editors (AppKit `NSTextView` and Win32
+/// `RICHEDIT`) address the buffer from the start of the document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentMention {
+    /// Associated object persistent ID
+    pub object_id: String,
+    /// Matched text fragment (name or alias)
+    pub matched_name: String,
+    /// 0-indexed line number
+    pub line_index: usize,
+    /// Byte offset of the match from the start of the document
+    pub byte_offset: usize,
+    /// Length of the match in bytes
+    pub byte_len: usize,
+    /// Offset in UTF-16 code units from the start of the document.
+    /// This is the unit used by `NSRange` (macOS) and `std::wstring` (Windows).
+    pub utf16_offset: usize,
+    /// Offset in Unicode code points (characters) from the start of the document
+    pub char_offset: usize,
+}
+
 /// Object engine maintaining lexicon, ID allocation, and mention scanning.
 #[derive(Debug, Clone, Default)]
 pub struct ObjectEngine {
@@ -192,6 +216,48 @@ impl ObjectEngine {
         }
 
         false
+    }
+
+    /// Scans a whole manuscript and returns every object mention in document order.
+    ///
+    /// Each line is scanned with the Korean particle aware boundary rules of
+    /// [`ObjectEngine::find_mentions_in_line`], and the per-line offsets are
+    /// converted into document absolute byte, UTF-16 and character offsets.
+    pub fn scan_document(&self, text: &str) -> Vec<DocumentMention> {
+        let mut mentions = Vec::new();
+        if self.alias_map.is_empty() {
+            return mentions;
+        }
+
+        let mut line_start_byte = 0usize;
+        let mut line_start_utf16 = 0usize;
+        let mut line_start_char = 0usize;
+
+        for (line_index, raw_line) in text.split('\n').enumerate() {
+            let line = raw_line.strip_suffix('\r').unwrap_or(raw_line);
+
+            for mention in self.find_mentions_in_line(line, line_index, None) {
+                let prefix = &line[..mention.byte_offset];
+                mentions.push(DocumentMention {
+                    object_id: mention.object_id,
+                    matched_name: mention.matched_name,
+                    line_index,
+                    byte_offset: line_start_byte + mention.byte_offset,
+                    byte_len: mention.byte_len,
+                    utf16_offset: line_start_utf16 + prefix.chars().map(char::len_utf16).sum::<usize>(),
+                    char_offset: line_start_char + mention.char_offset,
+                });
+            }
+
+            // `split('\n')` consumes one byte per line break, and a `\r` remains
+            // part of the raw slice, so advance with the raw length in bytes.
+            line_start_byte += raw_line.len() + 1;
+            line_start_utf16 += raw_line.encode_utf16().count() + 1;
+            line_start_char += raw_line.chars().count() + 1;
+        }
+
+        mentions.sort_by_key(|m| m.byte_offset);
+        mentions
     }
 
     /// Scans a line of text and finds all object mentions.

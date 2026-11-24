@@ -17,47 +17,40 @@ enum ScriptExportError: Error {
 }
 
 enum ScriptDocument {
+    /// `[[김철수]]` -> `김철수`, `[[장소:서울역]]` -> `서울역`.
+    /// Delegates to the Rust core so preview, DOCX, HWPX and PDF all share the
+    /// same markup rules as the editor and the object index.
     static func cleanLinks(_ input: String) -> String {
-        let pattern = #"\[\[([^\]]+)\]\]"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return input }
-        let source = input as NSString
-        var output = input
-        for match in regex.matches(in: input, range: NSRange(location: 0, length: source.length)).reversed() {
-            let raw = source.substring(with: match.range(at: 1))
-            let name = raw.split(separator: "|", maxSplits: 1).last.map(String.init) ?? raw
-            let display = name.split(separator: ":", maxSplits: 1).last.map(String.init) ?? name
-            if let range = Range(match.range, in: output) {
-                output.replaceSubrange(range, with: display)
-            }
-        }
-        return output
+        RepoCore.cleanMarkup(input)
     }
 
+    /// Builds the paragraph list every exporter consumes.
+    ///
+    /// Line classification (scene/dialogue/description/narration/note) and markup
+    /// cleaning come from the Rust core; the AppKit layer only maps them to
+    /// screenplay formatting.
     static func paragraphs(_ text: String, title: String, names: Set<String>) -> [ScriptParagraph] {
         var output: [ScriptParagraph] = []
         if !title.isEmpty { output.append(ScriptParagraph(kind: .heading, text: title)) }
         for rawLine in text.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("//") { continue }
-            if line.isEmpty { output.append(ScriptParagraph(kind: .blank, text: "")); continue }
-            var kind: ScriptFormat = .action
-            var result = line
-            func unwrap(_ marker: String) -> String? {
-                guard result.hasPrefix(marker), result.hasSuffix(marker),
-                      result.count >= 2 * marker.count else { return nil }
-                return String(result.dropFirst(marker.count).dropLast(marker.count))
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            let parsed = RepoCore.parse(rawLine)
+            switch parsed.kind {
+            case .note:
+                continue
+            case .empty:
+                output.append(ScriptParagraph(kind: .blank, text: ""))
+            case .scene:
+                output.append(ScriptParagraph(kind: .heading, text: parsed.content))
+            case .dialogue:
+                output.append(ScriptParagraph(kind: .dialogue, text: parsed.content))
+            case .description:
+                output.append(ScriptParagraph(kind: .description, text: parsed.content))
+            case .narration:
+                output.append(ScriptParagraph(kind: .narration, text: parsed.content))
+            default:
+                let kind: ScriptFormat = names.contains(parsed.content) ? .character : .action
+                output.append(ScriptParagraph(kind: kind, text: parsed.content))
             }
-            if let s = unwrap("@@") { result = s; kind = .dialogue }
-            else if let s = unwrap("##") { result = s; kind = .description }
-            else if let s = unwrap("₩₩") { result = s; kind = .narration }
-            else if line.hasPrefix("#") {
-                result = String(line.dropFirst()).trimmingCharacters(in: .whitespaces)
-                kind = .heading
-            }
-            result = cleanLinks(result)
-            if kind == .action && names.contains(result) { kind = .character }
-            output.append(ScriptParagraph(kind: kind, text: result))
         }
         return output
     }
