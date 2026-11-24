@@ -52,9 +52,6 @@ endif()
 
 add_custom_target(repo_core_build DEPENDS "${REPO_CORE_LIB}")
 
-add_library(repo_core STATIC IMPORTED)
-set_target_properties(repo_core PROPERTIES IMPORTED_LOCATION "${REPO_CORE_LIB}")
-
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
 
@@ -77,7 +74,9 @@ target_compile_definitions(repo PRIVATE
 )
 
 target_link_libraries(repo PRIVATE
-  repo_core
+  # Linked by path: the archive is produced by the cargo step above, so the
+  # custom target, not an imported target, carries the build order.
+  "${REPO_CORE_LIB}"
   # Native libraries the Rust standard library expects.
   ws2_32
   userenv

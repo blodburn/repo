@@ -7,6 +7,7 @@
 // convert to and from the UTF-16 std::wstring the Win32 UI works in.
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "repo_core.h"
